@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(Instrument VERSION 0.1.0 LANGUAGES C CXX)
+project(PeteBeatSynthGuitar VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -50,7 +50,7 @@ if(INSTRUMENT_BUILD_PLUGIN)
         BUNDLE_ID "com.petebeatsoftware.instrument"
         PLUGIN_MANUFACTURER_CODE PBTS
         PLUGIN_CODE IN01
-        PRODUCT_NAME "Instrument"
+        PRODUCT_NAME "Pete Beat Synth Guitar"
         DESCRIPTION "Audio passthrough and MIDI transposition"
         VERSION ${PROJECT_VERSION}
         IS_SYNTH FALSE
@@ -86,7 +86,7 @@ endif()
 
 if(INSTRUMENT_BUILD_TESTS)
     juce_add_console_app(instrument_tests
-        PRODUCT_NAME "Instrument Tests"
+        PRODUCT_NAME "Pete Beat Synth Guitar Tests"
     )
     juce_generate_juce_header(instrument_tests)
     target_sources(instrument_tests PRIVATE

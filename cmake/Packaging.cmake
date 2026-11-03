@@ -36,23 +36,34 @@ foreach(format IN LISTS INSTRUMENT_PLUGIN_FORMATS)
     list(APPEND INSTRUMENT_INSTALL_COMPONENTS "${component}")
 endforeach()
 
-set(CPACK_PACKAGE_NAME "Instrument")
+set(CPACK_PACKAGE_NAME "Pete Beat Synth Guitar")
 set(CPACK_PACKAGE_VENDOR "Petebeat Software")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Audio passthrough and MIDI transposition plugin")
 set(CPACK_PACKAGE_CONTACT "Petebeat Software")
-set(CPACK_PACKAGE_INSTALL_DIRECTORY "Instrument")
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "Pete Beat Synth Guitar")
 set(CPACK_COMPONENTS_ALL ${INSTRUMENT_INSTALL_COMPONENTS})
 set(CPACK_COMPONENTS_GROUPING IGNORE)
 set(CPACK_ARCHIVE_COMPONENT_INSTALL ON)
 
 if(WIN32)
-    find_program(INSTRUMENT_MAKENSIS makensis)
+    set(INSTRUMENT_MAKENSIS_HINTS
+        "$ENV{ProgramFiles}/NSIS"
+        "$ENV{ProgramFiles\(x86\)}/NSIS"
+        "C:/ProgramData/chocolatey/bin"
+    )
+    find_program(INSTRUMENT_MAKENSIS
+        NAMES makensis makensis.exe
+        HINTS ${INSTRUMENT_MAKENSIS_HINTS}
+    )
     if(INSTRUMENT_MAKENSIS)
         set(CPACK_GENERATOR NSIS)
+        set(CPACK_NSIS_EXECUTABLE "${INSTRUMENT_MAKENSIS}")
+        set(CPACK_NSIS_PACKAGE_NAME "Pete Beat Synth Guitar")
+        set(CPACK_NSIS_DISPLAY_NAME "Pete Beat Synth Guitar")
         set(CPACK_NSIS_COMPONENT_INSTALL ON)
-        set(CPACK_NSIS_INSTALL_ROOT "$COMMONFILES")
-        set(CPACK_PACKAGE_INSTALL_DIRECTORY ".")
+        set(CPACK_NSIS_INSTALL_ROOT "$COMMONFILES64")
+        set(CPACK_PACKAGE_INSTALL_DIRECTORY "VST3")
         set(CPACK_NSIS_MODIFY_PATH OFF)
         set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
     else()
