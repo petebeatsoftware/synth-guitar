@@ -10,28 +10,40 @@ SynthGuitarUserInterface::SynthGuitarUserInterface(SynthGuitarAudioProcessor& pr
     titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(titleLabel);
 
-    descriptionLabel.setText("Audio passthrough  |  Transient detector: C3",
+    descriptionLabel.setText("Audio passthrough  |  Transient detectors: Low C2, Mid C3, High C4",
                              juce::dontSendNotification);
     descriptionLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(descriptionLabel);
 
-    sensitivityLabel.setText("Sensitivity", juce::dontSendNotification);
-    sensitivityLabel.setJustificationType(juce::Justification::centredRight);
-    addAndMakeVisible(sensitivityLabel);
+    const char* labels[numSliders] = { "Low to Mid", "Mid to High", "Low Sens.", "Mid Sens.", "High Sens." };
+    const char* ids[numSliders] = {
+        SynthGuitarAudioProcessor::lowToMidParameterId,
+        SynthGuitarAudioProcessor::midToHighParameterId,
+        SynthGuitarAudioProcessor::sensitivityParameterIds[0],
+        SynthGuitarAudioProcessor::sensitivityParameterIds[1],
+        SynthGuitarAudioProcessor::sensitivityParameterIds[2] };
+    for (size_t i = 0; i < numSliders; ++i)
+    {
+        sliderLabels[i].setText(labels[i], juce::dontSendNotification);
+        sliderLabels[i].setJustificationType(juce::Justification::centredRight);
+        addAndMakeVisible(sliderLabels[i]);
 
-    sensitivitySlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    sensitivitySlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 56, 20);
-    addAndMakeVisible(sensitivitySlider);
-    sensitivityAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        processor.getParameters(), SynthGuitarAudioProcessor::sensitivityParameterId,
-        sensitivitySlider);
+        sliders[i].setSliderStyle(juce::Slider::LinearHorizontal);
+        sliders[i].setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 20);
+        addAndMakeVisible(sliders[i]);
+        sliderAttachments[i] = std::make_unique<SliderAttachment>(processor.getParameters(), ids[i], sliders[i]);
+    }
 
-    noteIndicatorLabel.setText("Note", juce::dontSendNotification);
-    addAndMakeVisible(noteIndicatorLabel);
+    const char* bandNames[numBands] = { "Low", "Mid", "High" };
+    for (size_t i = 0; i < numBands; ++i)
+    {
+        noteIndicatorLabels[i].setText(bandNames[i], juce::dontSendNotification);
+        addAndMakeVisible(noteIndicatorLabels[i]);
+    }
 
     setResizable(true, true);
-    setResizeLimits(360, 200, 720, 320);
-    setSize(480, 220);
+    setResizeLimits(400, 360, 720, 520);
+    setSize(480, 380);
     startTimerHz(30);
 }
 
@@ -42,11 +54,15 @@ SynthGuitarUserInterface::~SynthGuitarUserInterface()
 
 void SynthGuitarUserInterface::timerCallback()
 {
-    const auto active = audioProcessor.isTransientNoteActive();
-    if (active != noteIndicatorActive)
+    for (int i = 0; i < numBands; ++i)
     {
-        noteIndicatorActive = active;
-        repaint(noteIndicatorBounds.getSmallestIntegerContainer().expanded(2));
+        const auto index = static_cast<size_t>(i);
+        const auto active = audioProcessor.isTransientNoteActive(i);
+        if (active != noteIndicatorActive[index])
+        {
+            noteIndicatorActive[index] = active;
+            repaint(noteIndicatorBounds[index].getSmallestIntegerContainer().expanded(2));
+        }
     }
 }
 
@@ -58,23 +74,35 @@ void SynthGuitarUserInterface::paint(juce::Graphics& graphics)
     graphics.setColour(juce::Colour(0xff171a21));
     graphics.fillRoundedRectangle(getLocalBounds().toFloat().reduced(14.0f), 10.0f);
 
-    graphics.setColour(noteIndicatorActive ? juce::Colour(0xff67d5b5) : juce::Colour(0xff2c313c));
-    graphics.fillEllipse(noteIndicatorBounds);
-    graphics.setColour(juce::Colour(0xff67d5b5));
-    graphics.drawEllipse(noteIndicatorBounds, 1.5f);
+    for (size_t i = 0; i < numBands; ++i)
+    {
+        graphics.setColour(noteIndicatorActive[i] ? juce::Colour(0xff67d5b5) : juce::Colour(0xff2c313c));
+        graphics.fillEllipse(noteIndicatorBounds[i]);
+        graphics.setColour(juce::Colour(0xff67d5b5));
+        graphics.drawEllipse(noteIndicatorBounds[i], 1.5f);
+    }
 }
 
 void SynthGuitarUserInterface::resized()
 {
     auto content = getLocalBounds().reduced(24);
-    titleLabel.setBounds(content.removeFromTop(content.getHeight() / 3));
-    descriptionLabel.setBounds(content.removeFromTop(content.getHeight() / 3));
+    titleLabel.setBounds(content.removeFromTop(48));
+    descriptionLabel.setBounds(content.removeFromTop(24));
 
-    auto sensitivityRow = content.removeFromTop(content.getHeight() / 2);
-    sensitivityLabel.setBounds(sensitivityRow.removeFromLeft(90));
-    sensitivitySlider.setBounds(sensitivityRow);
+    auto indicatorRow = content.removeFromBottom(32);
+    const auto cellWidth = indicatorRow.getWidth() / numBands;
+    for (size_t i = 0; i < numBands; ++i)
+    {
+        auto cell = indicatorRow.removeFromLeft(cellWidth).withSizeKeepingCentre(80, 24);
+        noteIndicatorBounds[i] = cell.removeFromLeft(cell.getHeight()).toFloat().reduced(2.0f);
+        noteIndicatorLabels[i].setBounds(cell);
+    }
 
-    auto indicatorRow = content.withSizeKeepingCentre(80, juce::jmin(24, content.getHeight()));
-    noteIndicatorBounds = indicatorRow.removeFromLeft(indicatorRow.getHeight()).toFloat().reduced(2.0f);
-    noteIndicatorLabel.setBounds(indicatorRow);
+    const auto rowHeight = content.getHeight() / numSliders;
+    for (size_t i = 0; i < numSliders; ++i)
+    {
+        auto row = content.removeFromTop(rowHeight);
+        sliderLabels[i].setBounds(row.removeFromLeft(90));
+        sliders[i].setBounds(row);
+    }
 }

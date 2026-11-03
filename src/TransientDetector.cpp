@@ -24,6 +24,13 @@ void TransientDetector::prepare(double newSampleRate, int maximumBlockSize)
 {
 	juce::ignoreUnused(maximumBlockSize);
 	sampleRate = newSampleRate > 0.0 ? newSampleRate : 44100.0;
+	highPass.setType(juce::dsp::LinkwitzRileyFilterType::highpass);
+	lowPass.setType(juce::dsp::LinkwitzRileyFilterType::lowpass);
+	const juce::dsp::ProcessSpec spec{ sampleRate, static_cast<juce::uint32>(juce::jmax(1, maximumBlockSize)), 1 };
+	highPass.prepare(spec);
+	lowPass.prepare(spec);
+	appliedHighPass = -1.0f;
+	appliedLowPass = -1.0f;
 	refractorySamples = static_cast<int>(0.05 * sampleRate);
 	noteLengthSamples = static_cast<int>(kNoteLengthSeconds * sampleRate);
 	meanCoefficient = 1.0f - std::exp(-static_cast<float>(kHopSize / (0.5 * sampleRate)));
@@ -32,6 +39,8 @@ void TransientDetector::prepare(double newSampleRate, int maximumBlockSize)
 
 void TransientDetector::reset()
 {
+	highPass.reset();
+	lowPass.reset();
 	std::fill(fifo.begin(), fifo.end(), 0.0f);
 	std::fill(previousMagnitudes.begin(), previousMagnitudes.end(), 0.0f);
 	fifoWritePos = 0;
@@ -51,14 +60,14 @@ void TransientDetector::setSensitivity(float newSensitivity) noexcept
 
 void TransientDetector::sendNoteOn(juce::MidiBuffer& midiOut, int samplePosition)
 {
-	midiOut.addEvent(juce::MidiMessage::noteOn(kChannel, kNoteNumber, kVelocity), samplePosition);
+	midiOut.addEvent(juce::MidiMessage::noteOn(kChannel, activeNoteNumber, kVelocity), samplePosition);
 	samplesSinceNoteOn = 0;
 	noteActive.store(true);
 }
 
 void TransientDetector::sendNoteOff(juce::MidiBuffer& midiOut, int samplePosition)
 {
-	midiOut.addEvent(juce::MidiMessage::noteOff(kChannel, kNoteNumber), samplePosition);
+	midiOut.addEvent(juce::MidiMessage::noteOff(kChannel, activeNoteNumber), samplePosition);
 	noteActive.store(false);
 }
 
@@ -105,6 +114,20 @@ void TransientDetector::process(const juce::AudioBuffer<float>& input, juce::Mid
 
 	const float channelGain = 1.0f / static_cast<float>(numChannels);
 
+	const auto maxCutoff = static_cast<float>(0.49 * sampleRate);
+	const auto targetHighPass = juce::jlimit(1.0f, maxCutoff, highPassFrequency.load());
+	const auto targetLowPass = juce::jlimit(1.0f, maxCutoff, lowPassFrequency.load());
+	if (targetHighPass != appliedHighPass)
+	{
+		highPass.setCutoffFrequency(targetHighPass);
+		appliedHighPass = targetHighPass;
+	}
+	if (targetLowPass != appliedLowPass)
+	{
+		lowPass.setCutoffFrequency(targetLowPass);
+		appliedLowPass = targetLowPass;
+	}
+
 	for (int i = 0; i < numSamples; ++i)
 	{
 		if (noteActive.load() && ++samplesSinceNoteOn >= noteLengthSamples)
@@ -117,7 +140,7 @@ void TransientDetector::process(const juce::AudioBuffer<float>& input, juce::Mid
 		for (int channel = 0; channel < numChannels; ++channel)
 			mono += input.getReadPointer(channel)[i];
 
-		fifo[static_cast<size_t>(fifoWritePos)] = mono * channelGain;
+		fifo[static_cast<size_t>(fifoWritePos)] = lowPass.processSample(0, highPass.processSample(0, mono * channelGain));
 		if (++fifoWritePos >= kFftSize)
 		{
 			fifoWritePos = 0;
@@ -133,6 +156,7 @@ void TransientDetector::process(const juce::AudioBuffer<float>& input, juce::Mid
 
 		if (noteActive.load())
 			sendNoteOff(midiOut, i);
+		activeNoteNumber = noteNumber.load();
 		sendNoteOn(midiOut, i);
 		refractoryCounter = refractorySamples;
 	}

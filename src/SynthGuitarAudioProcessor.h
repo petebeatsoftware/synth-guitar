@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <juce_audio_utils/juce_audio_utils.h>
 
 #include "MidiTransposer.h"
@@ -34,16 +35,21 @@ public:
     void setStateInformation(const void* data, int sizeInBytes) override;
 
     juce::AudioProcessorValueTreeState& getParameters() noexcept { return parameters; }
-    bool isTransientNoteActive() const noexcept { return transientDetector.isNoteActive(); }
+    bool isTransientNoteActive(int band) const noexcept { return detectors[static_cast<size_t>(band)].isNoteActive(); }
 
-    static constexpr const char* sensitivityParameterId = "sensitivity";
+    static constexpr int numBands = 3;
+    static constexpr const char* sensitivityParameterIds[numBands] = { "sensitivityLow", "sensitivityMid", "sensitivityHigh" };
+    static constexpr const char* lowToMidParameterId = "lowToMid";
+    static constexpr const char* midToHighParameterId = "midToHigh";
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     juce::AudioProcessorValueTreeState parameters;
-    std::atomic<float>* sensitivityParam = nullptr;
-    instrument::TransientDetector transientDetector;
+    std::array<std::atomic<float>*, numBands> sensitivityParams{};
+    std::atomic<float>* lowToMidParam = nullptr;
+    std::atomic<float>* midToHighParam = nullptr;
+    std::array<instrument::TransientDetector, numBands> detectors;
     juce::MidiBuffer midiScratchBuffer;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SynthGuitarAudioProcessor)

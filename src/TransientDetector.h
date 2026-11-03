@@ -12,14 +12,14 @@ namespace instrument
 
 /** Detects transients in audio using spectral flux and emits MIDI.
 
-	A transient produces a note-on (C3). The matching note-off is sent either just before the
-	next transient's note-on, or once kNoteLengthSeconds have elapsed.
+	The input is band-limited by a 24dB/octave high pass and low pass before analysis.
+	A transient produces a note-on (see setNoteNumber). The matching
+	note-off is sent either just before the next transient's note-on, or
 	Detection latency is up to one hop (kHopSize samples).
 */
 class TransientDetector
 {
 public:
-	static constexpr int kNoteNumber = 48; // C3
 	static constexpr int kChannel = 1;
 	static constexpr juce::uint8 kVelocity = 100;
 	static constexpr double kNoteLengthSeconds = 0.2;
@@ -38,6 +38,17 @@ public:
 	void setSensitivity(float newSensitivity) noexcept;
 	float getSensitivity() const noexcept { return sensitivity.load(); }
 
+	/** Note number emitted on detection. Takes effect on the next note-on. */
+	void setNoteNumber(int newNoteNumber) noexcept { noteNumber.store(juce::jlimit(0, 127, newNoteNumber)); }
+	int getNoteNumber() const noexcept { return noteNumber.load(); }
+
+	/** Sets the 24dB/octave high pass and low pass cutoffs (Hz) applied before detection. */
+	void setFrequencyRange(float highPassHz, float lowPassHz) noexcept
+	{
+		highPassFrequency.store(highPassHz);
+		lowPassFrequency.store(lowPassHz);
+	}
+
 	/** Analyses the input and appends note-on/note-off events to midiOut. */
 	void process(const juce::AudioBuffer<float>& input, juce::MidiBuffer& midiOut);
 
@@ -50,6 +61,11 @@ private:
 	void sendNoteOff(juce::MidiBuffer& midiOut, int samplePosition);
 
 	juce::dsp::FFT fft;
+	juce::dsp::LinkwitzRileyFilter<float> highPass;
+	juce::dsp::LinkwitzRileyFilter<float> lowPass;
+	float appliedHighPass = -1.0f;
+	float appliedLowPass = -1.0f;
+	int activeNoteNumber = 48;
 	juce::dsp::WindowingFunction<float> window;
 
 	std::vector<float> fifo;
@@ -70,6 +86,9 @@ private:
 	int samplesSinceNoteOn = 0;
 
 	std::atomic<float> sensitivity{ 0.5f };
+	std::atomic<int> noteNumber{ 48 };
+	std::atomic<float> highPassFrequency{ 20.0f };
+	std::atomic<float> lowPassFrequency{ 20000.0f };
 	std::atomic<bool> noteActive{ false };
 };
 
