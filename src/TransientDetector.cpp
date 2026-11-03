@@ -1,0 +1,141 @@
+#include "TransientDetector.h"
+
+#include <algorithm>
+#include <cmath>
+
+namespace instrument
+{
+
+namespace
+{
+constexpr float kCompression = 100.0f;
+}
+
+TransientDetector::TransientDetector()
+	: fft(kFftOrder),
+	  window(static_cast<size_t>(kFftSize), juce::dsp::WindowingFunction<float>::hann, false),
+	  fifo(static_cast<size_t>(kFftSize), 0.0f),
+	  fftData(static_cast<size_t>(kFftSize) * 2, 0.0f),
+	  previousMagnitudes(static_cast<size_t>(kFftSize / 2 + 1), 0.0f)
+{
+}
+
+void TransientDetector::prepare(double newSampleRate, int maximumBlockSize)
+{
+	juce::ignoreUnused(maximumBlockSize);
+	sampleRate = newSampleRate > 0.0 ? newSampleRate : 44100.0;
+	refractorySamples = static_cast<int>(0.05 * sampleRate);
+	noteLengthSamples = static_cast<int>(kNoteLengthSeconds * sampleRate);
+	meanCoefficient = 1.0f - std::exp(-static_cast<float>(kHopSize / (0.5 * sampleRate)));
+	reset();
+}
+
+void TransientDetector::reset()
+{
+	std::fill(fifo.begin(), fifo.end(), 0.0f);
+	std::fill(previousMagnitudes.begin(), previousMagnitudes.end(), 0.0f);
+	fifoWritePos = 0;
+	samplesUntilHop = kHopSize;
+	fifoFilled = false;
+	previousFlux = 0.0f;
+	fluxMean = 0.0f;
+	refractoryCounter = 0;
+	samplesSinceNoteOn = 0;
+	noteActive.store(false);
+}
+
+void TransientDetector::setSensitivity(float newSensitivity) noexcept
+{
+	sensitivity.store(juce::jlimit(0.0f, 1.0f, newSensitivity));
+}
+
+void TransientDetector::sendNoteOn(juce::MidiBuffer& midiOut, int samplePosition)
+{
+	midiOut.addEvent(juce::MidiMessage::noteOn(kChannel, kNoteNumber, kVelocity), samplePosition);
+	samplesSinceNoteOn = 0;
+	noteActive.store(true);
+}
+
+void TransientDetector::sendNoteOff(juce::MidiBuffer& midiOut, int samplePosition)
+{
+	midiOut.addEvent(juce::MidiMessage::noteOff(kChannel, kNoteNumber), samplePosition);
+	noteActive.store(false);
+}
+
+bool TransientDetector::analyseHop()
+{
+	// Copy the FIFO in chronological order and window it.
+	for (int i = 0; i < kFftSize; ++i)
+		fftData[static_cast<size_t>(i)] = fifo[static_cast<size_t>((fifoWritePos + i) % kFftSize)];
+	std::fill(fftData.begin() + kFftSize, fftData.end(), 0.0f);
+
+	window.multiplyWithWindowingTable(fftData.data(), static_cast<size_t>(kFftSize));
+	fft.performFrequencyOnlyForwardTransform(fftData.data());
+
+	const int numBins = kFftSize / 2 + 1;
+	float flux = 0.0f;
+	for (int bin = 0; bin < numBins; ++bin)
+	{
+		const auto magnitude = std::log1p(kCompression * fftData[static_cast<size_t>(bin)] / static_cast<float>(kFftSize));
+		auto& previous = previousMagnitudes[static_cast<size_t>(bin)];
+		flux += std::max(0.0f, magnitude - previous);
+		previous = magnitude;
+	}
+
+	const auto currentSensitivity = sensitivity.load();
+	const auto multiplier = juce::jmap(currentSensitivity, 4.0f, 1.2f);
+	const auto floor = juce::jmap(currentSensitivity, 5.0f, 0.2f);
+
+	const bool detected = fifoFilled
+		&& refractoryCounter <= 0
+		&& flux > previousFlux
+		&& flux > fluxMean * multiplier + floor;
+
+	fluxMean += meanCoefficient * (flux - fluxMean);
+	previousFlux = flux;
+	return detected;
+}
+
+void TransientDetector::process(const juce::AudioBuffer<float>& input, juce::MidiBuffer& midiOut)
+{
+	const int numSamples = input.getNumSamples();
+	const int numChannels = input.getNumChannels();
+	if (numChannels == 0)
+		return;
+
+	const float channelGain = 1.0f / static_cast<float>(numChannels);
+
+	for (int i = 0; i < numSamples; ++i)
+	{
+		if (noteActive.load() && ++samplesSinceNoteOn >= noteLengthSamples)
+			sendNoteOff(midiOut, i);
+
+		if (refractoryCounter > 0)
+			--refractoryCounter;
+
+		float mono = 0.0f;
+		for (int channel = 0; channel < numChannels; ++channel)
+			mono += input.getReadPointer(channel)[i];
+
+		fifo[static_cast<size_t>(fifoWritePos)] = mono * channelGain;
+		if (++fifoWritePos >= kFftSize)
+		{
+			fifoWritePos = 0;
+			fifoFilled = true;
+		}
+
+		if (--samplesUntilHop > 0)
+			continue;
+
+		samplesUntilHop = kHopSize;
+		if (!analyseHop())
+			continue;
+
+		if (noteActive.load())
+			sendNoteOff(midiOut, i);
+		sendNoteOn(midiOut, i);
+		refractoryCounter = refractorySamples;
+	}
+}
+
+} // namespace instrument

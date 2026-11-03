@@ -100,7 +100,7 @@ if(INSTRUMENT_BUILD_PLUGIN)
         PLUGIN_MANUFACTURER_CODE PBTS
         PLUGIN_CODE IN01
         PRODUCT_NAME "Pete Beat Synth Guitar"
-        DESCRIPTION "Audio passthrough and MIDI transposition"
+        Audio passthrough and transient-triggered MIDI
         VERSION ${PROJECT_VERSION}
         IS_SYNTH FALSE
         IS_MIDI_EFFECT TRUE
@@ -116,7 +116,7 @@ if(INSTRUMENT_BUILD_PLUGIN)
         "src/SynthGuitarAudioProcessor.cpp"
         "src/SynthGuitarUserInterface.cpp"
         src/MidiTransposer.cpp
-        src/EnvelopeGenerator.cpp
+        src/TransientDetector.cpp
     )
     target_include_directories(instrument PRIVATE src)
     target_compile_features(instrument PUBLIC cxx_std_17)
@@ -126,6 +126,7 @@ if(INSTRUMENT_BUILD_PLUGIN)
     )
     target_link_libraries(instrument PRIVATE
         juce::juce_audio_utils
+        juce::juce_dsp
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags
@@ -141,11 +142,11 @@ if(INSTRUMENT_BUILD_TESTS)
     juce_generate_juce_header(instrument_tests)
     target_sources(instrument_tests PRIVATE
         tests/MidiTransposerTests.cpp
-        tests/EnvelopeGeneratorTests.cpp
+        tests/TransientDetectorTests.cpp
         "src/SynthGuitarAudioProcessor.cpp"
         "src/SynthGuitarUserInterface.cpp"
         src/MidiTransposer.cpp
-        src/EnvelopeGenerator.cpp
+        src/TransientDetector.cpp
     )
     target_include_directories(instrument_tests PRIVATE src)
     target_compile_features(instrument_tests PRIVATE cxx_std_17)
@@ -155,11 +156,12 @@ if(INSTRUMENT_BUILD_TESTS)
     )
     target_link_libraries(instrument_tests PRIVATE
         juce::juce_audio_utils
+        juce::juce_dsp
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags
     )
     add_test(NAME instrument_midi_transposer COMMAND instrument_tests)
-    add_test(NAME instrument_envelope_generator COMMAND instrument_tests)
+    add_test(NAME instrument_transient_detector COMMAND instrument_tests)
 endif()
 
 if(NOT INSTRUMENT_BUILD_PLUGIN AND NOT INSTRUMENT_BUILD_TESTS)

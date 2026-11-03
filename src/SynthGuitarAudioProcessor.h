@@ -3,6 +3,7 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 
 #include "MidiTransposer.h"
+#include "TransientDetector.h"
 
 class SynthGuitarAudioProcessor final : public juce::AudioProcessor
 {
@@ -32,7 +33,17 @@ public:
     void getStateInformation(juce::MemoryBlock& destinationData) override;
     void setStateInformation(const void* data, int sizeInBytes) override;
 
+    juce::AudioProcessorValueTreeState& getParameters() noexcept { return parameters; }
+    bool isTransientNoteActive() const noexcept { return transientDetector.isNoteActive(); }
+
+    static constexpr const char* sensitivityParameterId = "sensitivity";
+
 private:
+    static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+
+    juce::AudioProcessorValueTreeState parameters;
+    std::atomic<float>* sensitivityParam = nullptr;
+    instrument::TransientDetector transientDetector;
     juce::MidiBuffer midiScratchBuffer;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SynthGuitarAudioProcessor)

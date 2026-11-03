@@ -5,18 +5,34 @@
 SynthGuitarAudioProcessor::SynthGuitarAudioProcessor()
     : AudioProcessor(BusesProperties()
                          .withInput("Input", juce::AudioChannelSet::stereo(), true)
-                         .withOutput("Output", juce::AudioChannelSet::stereo(), true))
+                         .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
+      parameters(*this, nullptr, "PARAMS", createParameterLayout())
 {
+    sensitivityParam = parameters.getRawParameterValue(sensitivityParameterId);
+    setLatencySamples(instrument::TransientDetector::kHopSize);
+}
+
+juce::AudioProcessorValueTreeState::ParameterLayout SynthGuitarAudioProcessor::createParameterLayout()
+{
+    juce::AudioProcessorValueTreeState::ParameterLayout layout;
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ sensitivityParameterId, 1 },
+        "Sensitivity",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f),
+        0.5f));
+    return layout;
 }
 
 void SynthGuitarAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
-    juce::ignoreUnused(sampleRate, samplesPerBlock);
+    transientDetector.prepare(sampleRate, samplesPerBlock);
+    setLatencySamples(instrument::TransientDetector::kHopSize);
     midiScratchBuffer.ensureSize(1024 * 1024);
 }
 
 void SynthGuitarAudioProcessor::releaseResources()
 {
+    transientDetector.reset();
     midiScratchBuffer.clear();
 }
 
@@ -36,7 +52,9 @@ void SynthGuitarAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,
     for (auto channel = getTotalNumInputChannels(); channel < getTotalNumOutputChannels(); ++channel)
         audio.clear(channel, 0, audio.getNumSamples());
 
-    instrument::transposeMidiDownOneSemitone(midiMessages, midiScratchBuffer);
+    transientDetector.setSensitivity(sensitivityParam->load());
+    midiMessages.clear();
+    transientDetector.process(audio, midiMessages);
 }
 
 juce::AudioProcessorEditor* SynthGuitarAudioProcessor::createEditor()
@@ -102,12 +120,15 @@ void SynthGuitarAudioProcessor::changeProgramName(int index, const juce::String&
 
 void SynthGuitarAudioProcessor::getStateInformation(juce::MemoryBlock& destinationData)
 {
-    destinationData.reset();
+    if (auto xml = parameters.copyState().createXml())
+        copyXmlToBinary(*xml, destinationData);
 }
 
 void SynthGuitarAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
-    juce::ignoreUnused(data, sizeInBytes);
+    if (auto xml = getXmlFromBinary(data, sizeInBytes))
+        if (xml->hasTagName(parameters.state.getType()))
+            parameters.replaceState(juce::ValueTree::fromXml(*xml));
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

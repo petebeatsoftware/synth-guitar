@@ -8,6 +8,8 @@
 #include <utility>
 #include <vector>
 
+int runTransientDetectorTests();
+
 namespace
 {
 int failures = 0;
@@ -131,6 +133,9 @@ int main()
     testMidiTranspositionAndPreservation();
     testNoteRangeClampsAtZero();
     testAudioPassesThroughUnchanged();
+
+    if (runTransientDetectorTests() != 0)
+        return 1;
 
     if (failures != 0)
     {
