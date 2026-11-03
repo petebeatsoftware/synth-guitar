@@ -1,8 +1,8 @@
-#include "PluginEditor.h"
+#include "SynthGuitarUserInterface.h"
 
-#include "PluginProcessor.h"
+#include "SynthGuitarAudioProcessor.h"
 
-InstrumentAudioProcessorEditor::InstrumentAudioProcessorEditor(InstrumentAudioProcessor& processor)
+SynthGuitarUserInterface::SynthGuitarUserInterface(SynthGuitarAudioProcessor& processor)
     : AudioProcessorEditor(processor)
 {
     titleLabel.setText("Pete Beat Synth Guitar", juce::dontSendNotification);
@@ -20,7 +20,7 @@ InstrumentAudioProcessorEditor::InstrumentAudioProcessorEditor(InstrumentAudioPr
     setSize(480, 180);
 }
 
-void InstrumentAudioProcessorEditor::paint(juce::Graphics& graphics)
+void SynthGuitarUserInterface::paint(juce::Graphics& graphics)
 {
     graphics.fillAll(juce::Colour(0xff171a21));
     graphics.setColour(juce::Colour(0xff67d5b5));
@@ -29,7 +29,7 @@ void InstrumentAudioProcessorEditor::paint(juce::Graphics& graphics)
     graphics.fillRoundedRectangle(getLocalBounds().toFloat().reduced(14.0f), 10.0f);
 }
 
-void InstrumentAudioProcessorEditor::resized()
+void SynthGuitarUserInterface::resized()
 {
     auto content = getLocalBounds().reduced(24);
     titleLabel.setBounds(content.removeFromTop(content.getHeight() / 2));

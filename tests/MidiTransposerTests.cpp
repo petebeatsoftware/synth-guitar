@@ -1,5 +1,5 @@
 #include "MidiTransposer.h"
-#include "PluginProcessor.h"
+#include "SynthGuitarAudioProcessor.h"
 
 #include <algorithm>
 #include <array>
@@ -96,7 +96,7 @@ void testNoteRangeClampsAtZero()
 
 void testAudioPassesThroughUnchanged()
 {
-    InstrumentAudioProcessor processor;
+    SynthGuitarAudioProcessor processor;
     processor.prepareToPlay(48000.0, 128);
 
     juce::AudioBuffer<float> audio(2, 128);

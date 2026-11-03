@@ -95,8 +95,8 @@ if(INSTRUMENT_BUILD_PLUGIN)
 
     juce_generate_juce_header(instrument)
     target_sources(instrument PRIVATE
-        src/PluginProcessor.cpp
-        src/PluginEditor.cpp
+        "src/SynthGuitarAudioProcessor.cpp"
+        "src/SynthGuitarUserInterface.cpp"
         src/MidiTransposer.cpp
     )
     target_include_directories(instrument PRIVATE src)
@@ -122,8 +122,8 @@ if(INSTRUMENT_BUILD_TESTS)
     juce_generate_juce_header(instrument_tests)
     target_sources(instrument_tests PRIVATE
         tests/MidiTransposerTests.cpp
-        src/PluginProcessor.cpp
-        src/PluginEditor.cpp
+        "src/SynthGuitarAudioProcessor.cpp"
+        "src/SynthGuitarUserInterface.cpp"
         src/MidiTransposer.cpp
     )
     target_include_directories(instrument_tests PRIVATE src)

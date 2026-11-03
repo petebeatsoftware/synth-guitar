@@ -4,10 +4,10 @@
 
 #include "MidiTransposer.h"
 
-class InstrumentAudioProcessor final : public juce::AudioProcessor
+class SynthGuitarAudioProcessor final : public juce::AudioProcessor
 {
 public:
-    InstrumentAudioProcessor();
+    SynthGuitarAudioProcessor();
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
@@ -35,5 +35,5 @@ public:
 private:
     juce::MidiBuffer midiScratchBuffer;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(InstrumentAudioProcessor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SynthGuitarAudioProcessor)
 };
