@@ -34,10 +34,6 @@ jobs:
             libxcomposite-dev libxcursor-dev libxinerama-dev libxrandr-dev \
             libxrender-dev libglu1-mesa-dev
 
-      - name: Install NSIS
-        if: runner.os == 'Windows'
-        run: choco install nsis --yes --no-progress
-
       - name: Configure
         run: cmake --preset ci
 
@@ -47,7 +43,12 @@ jobs:
       - name: Test
         run: ctest --preset ci
 
+      - name: Package (Windows ZIP)
+        if: runner.os == 'Windows'
+        run: cpack --config build-ci/CPackConfig.cmake -G ZIP -B build-ci
+
       - name: Package
+        if: runner.os != 'Windows'
         run: cmake --build --preset ci --target package
 
       - name: Upload package artifacts
