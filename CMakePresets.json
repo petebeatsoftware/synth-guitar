@@ -10,6 +10,14 @@
       "name": "dev",
       "displayName": "Development build",
       "generator": "Ninja",
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "toolset": {
+        "value": "host=x64",
+        "strategy": "external"
+      },
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
@@ -31,11 +39,13 @@
   "buildPresets": [
     {
       "name": "dev",
-      "configurePreset": "dev"
+      "configurePreset": "dev",
+      "inheritConfigureEnvironment": true
     },
     {
       "name": "ci",
-      "configurePreset": "ci"
+      "configurePreset": "ci",
+      "inheritConfigureEnvironment": true
     }
   ],
   "testPresets": [

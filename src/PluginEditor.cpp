@@ -5,7 +5,7 @@
 InstrumentAudioProcessorEditor::InstrumentAudioProcessorEditor(InstrumentAudioProcessor& processor)
     : AudioProcessorEditor(processor)
 {
-    titleLabel.setText("Instrument", juce::dontSendNotification);
+    titleLabel.setText("Pete Beat Synth Guitar", juce::dontSendNotification);
     titleLabel.setFont(juce::Font(juce::FontOptions(30.0f, juce::Font::bold)));
     titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(titleLabel);

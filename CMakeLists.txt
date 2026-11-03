@@ -9,6 +9,37 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 include(CTest)
 include(FetchContent)
 
+if(MSVC AND WIN32)
+    get_filename_component(_instrument_msvc_bin_dir "${CMAKE_LINKER}" DIRECTORY)
+    get_filename_component(_instrument_msvc_host_dir "${_instrument_msvc_bin_dir}" DIRECTORY)
+    get_filename_component(_instrument_msvc_bin_root "${_instrument_msvc_host_dir}" DIRECTORY)
+    get_filename_component(_instrument_msvc_root "${_instrument_msvc_bin_root}" DIRECTORY)
+
+    set(_instrument_msvc_x64_libdir "${_instrument_msvc_root}/lib/x64")
+
+    set(_instrument_sdk_um_x64_libdir "")
+    set(_instrument_sdk_ucrt_x64_libdir "")
+    if(CMAKE_MT)
+        get_filename_component(_instrument_sdk_x64_bin_dir "${CMAKE_MT}" DIRECTORY)
+        get_filename_component(_instrument_sdk_version_bin_dir "${_instrument_sdk_x64_bin_dir}" DIRECTORY)
+        get_filename_component(_instrument_sdk_bin_root "${_instrument_sdk_version_bin_dir}" DIRECTORY)
+        get_filename_component(_instrument_windows_kits_root "${_instrument_sdk_bin_root}" DIRECTORY)
+        get_filename_component(_instrument_windows_sdk_version "${_instrument_sdk_version_bin_dir}" NAME)
+
+        set(_instrument_sdk_um_x64_libdir "${_instrument_windows_kits_root}/Lib/${_instrument_windows_sdk_version}/um/x64")
+        set(_instrument_sdk_ucrt_x64_libdir "${_instrument_windows_kits_root}/Lib/${_instrument_windows_sdk_version}/ucrt/x64")
+    endif()
+
+    foreach(_instrument_libdir IN ITEMS
+            "${_instrument_msvc_x64_libdir}"
+            "${_instrument_sdk_um_x64_libdir}"
+            "${_instrument_sdk_ucrt_x64_libdir}")
+        if(_instrument_libdir AND IS_DIRECTORY "${_instrument_libdir}")
+            add_link_options("/LIBPATH:${_instrument_libdir}")
+        endif()
+    endforeach()
+endif()
+
 option(INSTRUMENT_BUILD_PLUGIN "Build the JUCE plugin targets" ON)
 option(INSTRUMENT_BUILD_TESTS "Build processor unit tests" ${BUILD_TESTING})
 option(INSTRUMENT_ENABLE_AAX "Build the AAX format (requires the Avid AAX SDK)" OFF)
