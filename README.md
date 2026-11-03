@@ -26,6 +26,15 @@ See [docs/setup.md](docs/setup.md) for platform dependencies and packaging
 instructions, and [docs/structure.md](docs/structure.md) for the repository
 layout.
 
+> **Windows note:** this project only supports 64-bit (x64) MSVC builds.
+> Visual Studio's CMake integration applies the x64 toolset automatically
+> when you open the folder and use the `dev`/`ci` presets. If you configure
+> from a plain PowerShell window instead, load the x64 developer environment
+> first (for example by running `scripts/configure.ps1 -Build -Test`, or by
+> launching an "x64 Native Tools Command Prompt for VS"), otherwise CMake may
+> select the 32-bit host compiler and fail to link against the 64-bit SDK
+> libraries.
+
 To build an installer with CPack, run:
 
 ```sh

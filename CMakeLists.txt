@@ -9,6 +9,24 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 include(CTest)
 include(FetchContent)
 
+if(MSVC AND WIN32 AND NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+    message(FATAL_ERROR
+        "This project only supports 64-bit (x64) MSVC builds, but a 32-bit "
+        "compiler was selected (${CMAKE_CXX_COMPILER}).\n"
+        "This usually happens when CMake is configured from a plain shell "
+        "without the x64 Visual Studio environment loaded. Fix this by "
+        "either:\n"
+        "  * Opening this folder in Visual Studio and using the 'dev' or "
+        "'ci' CMake preset (Visual Studio applies the x64 toolset "
+        "automatically), or\n"
+        "  * Running 'scripts/configure.ps1' from PowerShell, or\n"
+        "  * Launching 'x64 Native Tools Command Prompt for VS' (or running "
+        "vcvars64.bat) before invoking cmake, then re-running your cmake "
+        "command.\n"
+        "Delete the build directory and reconfigure after switching "
+        "environments.")
+endif()
+
 if(MSVC AND WIN32)
     get_filename_component(_instrument_msvc_bin_dir "${CMAKE_LINKER}" DIRECTORY)
     get_filename_component(_instrument_msvc_host_dir "${_instrument_msvc_bin_dir}" DIRECTORY)
@@ -98,6 +116,7 @@ if(INSTRUMENT_BUILD_PLUGIN)
         "src/SynthGuitarAudioProcessor.cpp"
         "src/SynthGuitarUserInterface.cpp"
         src/MidiTransposer.cpp
+        src/EnvelopeGenerator.cpp
     )
     target_include_directories(instrument PRIVATE src)
     target_compile_features(instrument PUBLIC cxx_std_17)
@@ -122,9 +141,11 @@ if(INSTRUMENT_BUILD_TESTS)
     juce_generate_juce_header(instrument_tests)
     target_sources(instrument_tests PRIVATE
         tests/MidiTransposerTests.cpp
+        tests/EnvelopeGeneratorTests.cpp
         "src/SynthGuitarAudioProcessor.cpp"
         "src/SynthGuitarUserInterface.cpp"
         src/MidiTransposer.cpp
+        src/EnvelopeGenerator.cpp
     )
     target_include_directories(instrument_tests PRIVATE src)
     target_compile_features(instrument_tests PRIVATE cxx_std_17)
@@ -138,6 +159,7 @@ if(INSTRUMENT_BUILD_TESTS)
         juce::juce_recommended_warning_flags
     )
     add_test(NAME instrument_midi_transposer COMMAND instrument_tests)
+    add_test(NAME instrument_envelope_generator COMMAND instrument_tests)
 endif()
 
 if(NOT INSTRUMENT_BUILD_PLUGIN AND NOT INSTRUMENT_BUILD_TESTS)
