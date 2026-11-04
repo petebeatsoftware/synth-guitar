@@ -22,22 +22,6 @@ processor and its wrappers. It also defines a console test target using the
 same processor and processing code. `CMakePresets.json` standardizes local and
 CI configurations; generated files stay in ignored build directories.
 
-## Source
-
-- `src/PluginProcessor.h/.cpp`: JUCE `AudioProcessor`; declares matching mono
-  or stereo audio buses, passes audio through, and routes MIDI through the
-  transposer.
-- `src/PluginEditor.h/.cpp`: minimal resizable JUCE editor.
-- `src/MidiTransposer.h/.cpp`: reusable MIDI event transformation. It shifts
-  note-on/note-off events down one semitone, clamps note zero at zero, and
-  preserves event timing and other MIDI messages.
-
-## Tests
-
-`tests/MidiTransposerTests.cpp` exercises MIDI note-on/off and velocity-zero
-note-on handling, controller/SysEx preservation, timestamps, the low-note
-boundary, and exact audio passthrough. CTest runs the test executable.
-
 ## Packaging
 
 `cmake/Packaging.cmake` installs each built plugin format as its own CPack

@@ -6,16 +6,31 @@ SynthGuitarAudioProcessor::SynthGuitarAudioProcessor()
     : AudioProcessor(BusesProperties()
                          .withInput("Input", juce::AudioChannelSet::stereo(), true)
                          .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
-      parameters(*this, nullptr, "PARAMS", createParameterLayout())
+      parameters(*this, nullptr, "PARAMS", createParameterLayout()),
+      players{ std::make_shared<instrument::TriggeredPlayer>(),
+               std::make_shared<instrument::TriggeredPlayer>(),
+               std::make_shared<instrument::TriggeredPlayer>() },
+      detectors{ instrument::TransientDetector(players[0]),
+                 instrument::TransientDetector(players[1]),
+                  instrument::TransientDetector(players[2]) },
+       singlePlayer(std::make_shared<instrument::TriggeredPlayer>()),
+       singleDetector(singlePlayer)
 {
     for (size_t band = 0; band < numBands; ++band)
     {
         sensitivityParams[band] = parameters.getRawParameterValue(sensitivityParameterIds[band]);
-        detectors[band].setNoteNumber(36 + 12 * static_cast<int>(band));
+        players[band]->setChannel(static_cast<int>(band) + 1);
     }
     lowToMidParam = parameters.getRawParameterValue(lowToMidParameterId);
     midToHighParam = parameters.getRawParameterValue(midToHighParameterId);
-    setLatencySamples(instrument::TransientDetector::kHopSize);
+    detectionModeParam = parameters.getRawParameterValue(detectionModeParameterId);
+    bandModeParam = parameters.getRawParameterValue(bandModeParameterId);
+    singleSensitivityParam = parameters.getRawParameterValue(singleSensitivityParameterId);
+    singleLowFrequencyParam = parameters.getRawParameterValue(singleLowFrequencyParameterId);
+    singleHighFrequencyParam = parameters.getRawParameterValue(singleHighFrequencyParameterId);
+    strumParam = parameters.getRawParameterValue(strumParameterId);
+    velocitySensitivityParam = parameters.getRawParameterValue(velocitySensitivityParameterId);
+    singlePlayer->setChannel(1);
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout SynthGuitarAudioProcessor::createParameterLayout()
@@ -29,6 +44,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout SynthGuitarAudioProcessor::c
             juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f),
             0.5f));
 
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{ detectionModeParameterId, 1 }, "Detection Mode",
+        juce::StringArray{ "Spectral", "Envelope", "Hybrid" }, 2));
+
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{ bandModeParameterId, 1 }, "Mode",
+        juce::StringArray{ "Single", "Multi" }, 1));
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{ strumParameterId, 1 }, "Strum",
+        juce::StringArray{ "Low", "High" }, 1));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ singleSensitivityParameterId, 1 }, "Sensitivity",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.5f));
+
     auto frequencyRange = juce::NormalisableRange<float>(20.0f, 20000.0f, 1.0f);
     frequencyRange.setSkewForCentre(1000.0f);
     layout.add(std::make_unique<juce::AudioParameterFloat>(
@@ -37,6 +66,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout SynthGuitarAudioProcessor::c
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{ midToHighParameterId, 1 }, "Mid to High", frequencyRange, 1000.0f,
         juce::AudioParameterFloatAttributes().withLabel("Hz")));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ singleLowFrequencyParameterId, 1 }, "Low Frequency", frequencyRange, 20.0f,
+        juce::AudioParameterFloatAttributes().withLabel("Hz")));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ singleHighFrequencyParameterId, 1 }, "High Frequency", frequencyRange, 20000.0f,
+        juce::AudioParameterFloatAttributes().withLabel("Hz")));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ velocitySensitivityParameterId, 1 }, "Velocity Sensitivity",
+        juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 0.0f,
+        juce::AudioParameterFloatAttributes().withLabel("%")));
     return layout;
 }
 
@@ -44,15 +83,34 @@ void SynthGuitarAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
 {
     for (auto& detector : detectors)
         detector.prepare(sampleRate, samplesPerBlock);
-    setLatencySamples(instrument::TransientDetector::kHopSize);
+    for (auto& player : players)
+        player->prepare(sampleRate, samplesPerBlock);
+    singleDetector.prepare(sampleRate, samplesPerBlock);
+    singlePlayer->prepare(sampleRate, samplesPerBlock);
+    lastBandMode = -1;
+    lastStrum = -1;
+    singleInputBuffer.ensureSize(1024 * 1024);
     midiScratchBuffer.ensureSize(1024 * 1024);
+    for (auto& buffer : splitMidiBuffers)
+        buffer.ensureSize(1024 * 1024);
+    midiSplitter.reset();
 }
 
 void SynthGuitarAudioProcessor::releaseResources()
 {
     for (auto& detector : detectors)
         detector.reset();
+    for (auto& player : players)
+        player->reset();
+    singleDetector.reset();
+    singlePlayer->reset();
+    lastBandMode = -1;
+    lastStrum = -1;
+    singleInputBuffer.clear();
     midiScratchBuffer.clear();
+    for (auto& buffer : splitMidiBuffers)
+        buffer.clear();
+    midiSplitter.reset();
 }
 
 bool SynthGuitarAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
@@ -71,18 +129,74 @@ void SynthGuitarAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,
     for (auto channel = getTotalNumInputChannels(); channel < getTotalNumOutputChannels(); ++channel)
         audio.clear(channel, 0, audio.getNumSamples());
 
-    const auto lowToMid = juce::jlimit(20.0f, 19000.0f, lowToMidParam->load());
-    const auto midToHigh = juce::jmin(20000.0f, juce::jmax(midToHighParam->load(), lowToMid * 1.01f));
-    detectors[0].setFrequencyRange(20.0f, lowToMid);
-    detectors[1].setFrequencyRange(lowToMid, midToHigh);
-    detectors[2].setFrequencyRange(midToHigh, 20000.0f);
-
-    midiMessages.clear();
-    for (size_t band = 0; band < numBands; ++band)
+    midiScratchBuffer.clear();
+    midiScratchBuffer.swapWith(midiMessages);
+    const int bandMode = juce::jlimit(0, 1, static_cast<int>(bandModeParam->load()));
+    if (lastBandMode >= 0 && bandMode != lastBandMode)
     {
-        detectors[band].setSensitivity(sensitivityParams[band]->load());
-        detectors[band].process(audio, midiMessages);
+        if (bandMode == 0)
+        {
+            for (auto& player : players)
+                player->releaseNotes(midiMessages);
+            for (auto& detector : detectors)
+                detector.reset();
+        }
+        else
+        {
+            singlePlayer->releaseNotes(midiMessages);
+            singleDetector.reset();
+        }
     }
+    lastBandMode = bandMode;
+    const int strum = bandMode == 0 ? (strumParam->load() >= 0.5f ? 1 : 0) : -1;
+    singleInputBuffer.clear();
+    if (bandMode == 0 && strum != lastStrum)
+    {
+        singlePlayer->releaseNotes(midiMessages);
+        midiSplitter.addHeldNotes(strum, singleInputBuffer, 0);
+    }
+    lastStrum = strum;
+    midiSplitter.processData(midiScratchBuffer, splitMidiBuffers);
+    const auto detectionMode = static_cast<instrument::TransientDetector::DetectionMode>(
+        juce::jlimit(0, 2, static_cast<int>(detectionModeParam->load())));
+    const auto velocitySensitivity = velocitySensitivityParam->load() / 100.0f;
+    if (bandMode == 0)
+    {
+        const auto low = juce::jlimit(20.0f, 19000.0f, singleLowFrequencyParam->load());
+        const auto high = juce::jmin(20000.0f, juce::jmax(singleHighFrequencyParam->load(), low * 1.01f));
+        singleDetector.setFrequencyRange(low, high);
+        singleInputBuffer.addEvents(splitMidiBuffers[static_cast<size_t>(strum)], 0, -1, 0);
+        singlePlayer->processBlock(singleInputBuffer, midiMessages, audio.getNumSamples());
+        singleDetector.setSensitivity(singleSensitivityParam->load());
+        singleDetector.setVelocitySensitivity(velocitySensitivity);
+        singleDetector.setDetectionMode(detectionMode);
+        singleDetector.process(audio);
+        singlePlayer->finishBlock();
+    }
+    else
+    {
+        const auto lowToMid = juce::jlimit(20.0f, 19000.0f, lowToMidParam->load());
+        const auto midToHigh = juce::jmin(20000.0f, juce::jmax(midToHighParam->load(), lowToMid * 1.01f));
+        detectors[0].setFrequencyRange(20.0f, lowToMid);
+        detectors[1].setFrequencyRange(lowToMid, midToHigh);
+        detectors[2].setFrequencyRange(midToHigh, 20000.0f);
+
+        for (size_t band = 0; band < numBands; ++band)
+            players[band]->processBlock(splitMidiBuffers[band], midiMessages, audio.getNumSamples());
+
+        for (size_t band = 0; band < numBands; ++band)
+        {
+            detectors[band].setSensitivity(sensitivityParams[band]->load());
+            detectors[band].setVelocitySensitivity(velocitySensitivity);
+            detectors[band].setDetectionMode(detectionMode);
+            detectors[band].process(audio);
+        }
+
+        for (auto& player : players)
+            player->finishBlock();
+    }
+
+    audio.clear();
 }
 
 juce::AudioProcessorEditor* SynthGuitarAudioProcessor::createEditor()

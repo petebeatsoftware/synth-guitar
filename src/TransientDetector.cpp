@@ -9,10 +9,13 @@ namespace instrument
 namespace
 {
 constexpr float kCompression = 100.0f;
+constexpr float kFluxFullScale = 20.0f;
+constexpr float kIntensityFloorDb = -60.0f;
 }
 
-TransientDetector::TransientDetector()
-	: fft(kFftOrder),
+TransientDetector::TransientDetector(std::shared_ptr<TriggeredPlayer> triggeredPlayer)
+	: player(std::move(triggeredPlayer)),
+	  fft(kFftOrder),
 	  window(static_cast<size_t>(kFftSize), juce::dsp::WindowingFunction<float>::hann, false),
 	  fifo(static_cast<size_t>(kFftSize), 0.0f),
 	  fftData(static_cast<size_t>(kFftSize) * 2, 0.0f),
@@ -32,8 +35,10 @@ void TransientDetector::prepare(double newSampleRate, int maximumBlockSize)
 	appliedHighPass = -1.0f;
 	appliedLowPass = -1.0f;
 	refractorySamples = static_cast<int>(0.05 * sampleRate);
-	noteLengthSamples = static_cast<int>(kNoteLengthSeconds * sampleRate);
 	meanCoefficient = 1.0f - std::exp(-static_cast<float>(kHopSize / (0.5 * sampleRate)));
+	fastAttackCoeff = 1.0f - std::exp(-static_cast<float>(1.0 / (0.0005 * sampleRate)));
+	fastReleaseCoeff = 1.0f - std::exp(-static_cast<float>(1.0 / (0.01 * sampleRate)));
+	slowCoeff = 1.0f - std::exp(-static_cast<float>(1.0 / (0.05 * sampleRate)));
 	reset();
 }
 
@@ -48,9 +53,10 @@ void TransientDetector::reset()
 	fifoFilled = false;
 	previousFlux = 0.0f;
 	fluxMean = 0.0f;
+	fastEnv = 0.0f;
+	slowEnv = 0.0f;
 	refractoryCounter = 0;
-	samplesSinceNoteOn = 0;
-	noteActive.store(false);
+	samplesSinceLastTrigger = kFftSize;
 }
 
 void TransientDetector::setSensitivity(float newSensitivity) noexcept
@@ -58,20 +64,24 @@ void TransientDetector::setSensitivity(float newSensitivity) noexcept
 	sensitivity.store(juce::jlimit(0.0f, 1.0f, newSensitivity));
 }
 
-void TransientDetector::sendNoteOn(juce::MidiBuffer& midiOut, int samplePosition)
+juce::uint8 TransientDetector::intensityToVelocity(float intensity, float sensitivity) noexcept
 {
-	midiOut.addEvent(juce::MidiMessage::noteOn(kChannel, activeNoteNumber, kVelocity), samplePosition);
-	samplesSinceNoteOn = 0;
-	noteActive.store(true);
+	const auto dynamicVelocity = 1.0f + 126.0f * juce::jlimit(0.0f, 1.0f, intensity);
+	return static_cast<juce::uint8>(juce::jlimit(1, 127,
+		juce::roundToInt(juce::jmap(juce::jlimit(0.0f, 1.0f, sensitivity), 127.0f, dynamicVelocity))));
 }
 
-void TransientDetector::sendNoteOff(juce::MidiBuffer& midiOut, int samplePosition)
+bool TransientDetector::processEnvelopeSample(float sample, float currentSensitivity) noexcept
 {
-	midiOut.addEvent(juce::MidiMessage::noteOff(kChannel, activeNoteNumber), samplePosition);
-	noteActive.store(false);
+	const auto amplitude = std::abs(sample);
+	fastEnv += (amplitude > fastEnv ? fastAttackCoeff : fastReleaseCoeff) * (amplitude - fastEnv);
+	slowEnv += slowCoeff * (amplitude - slowEnv);
+	const auto ratio = juce::jmap(currentSensitivity, 6.0f, 1.5f);
+	const auto gate = juce::jmap(currentSensitivity, 0.05f, 0.002f);
+	return fastEnv > gate && fastEnv > slowEnv * ratio;
 }
 
-bool TransientDetector::analyseHop()
+bool TransientDetector::analyseHop(float& intensityOut)
 {
 	// Copy the FIFO in chronological order and window it.
 	for (int i = 0; i < kFftSize; ++i)
@@ -92,8 +102,8 @@ bool TransientDetector::analyseHop()
 	}
 
 	const auto currentSensitivity = sensitivity.load();
-	const auto multiplier = juce::jmap(currentSensitivity, 4.0f, 1.2f);
-	const auto floor = juce::jmap(currentSensitivity, 5.0f, 0.2f);
+	const auto multiplier = juce::jmap(currentSensitivity, 3.0f, 1.15f);
+	const auto floor = juce::jmap(currentSensitivity, 1.0f, 0.05f);
 
 	const bool detected = fifoFilled
 		&& refractoryCounter <= 0
@@ -102,16 +112,20 @@ bool TransientDetector::analyseHop()
 
 	fluxMean += meanCoefficient * (flux - fluxMean);
 	previousFlux = flux;
+	intensityOut = detected ? juce::jlimit(0.0f, 1.0f, flux / kFluxFullScale) : 0.0f;
 	return detected;
 }
 
-void TransientDetector::process(const juce::AudioBuffer<float>& input, juce::MidiBuffer& midiOut)
+void TransientDetector::process(const juce::AudioBuffer<float>& input)
 {
 	const int numSamples = input.getNumSamples();
 	const int numChannels = input.getNumChannels();
 	if (numChannels == 0)
 		return;
 
+	const auto currentMode = mode.load();
+	const auto currentSensitivity = sensitivity.load();
+	const auto currentVelocitySensitivity = velocitySensitivity.load();
 	const float channelGain = 1.0f / static_cast<float>(numChannels);
 
 	const auto maxCutoff = static_cast<float>(0.49 * sampleRate);
@@ -130,17 +144,28 @@ void TransientDetector::process(const juce::AudioBuffer<float>& input, juce::Mid
 
 	for (int i = 0; i < numSamples; ++i)
 	{
-		if (noteActive.load() && ++samplesSinceNoteOn >= noteLengthSamples)
-			sendNoteOff(midiOut, i);
-
 		if (refractoryCounter > 0)
 			--refractoryCounter;
+		if (samplesSinceLastTrigger < kFftSize)
+			++samplesSinceLastTrigger;
 
 		float mono = 0.0f;
 		for (int channel = 0; channel < numChannels; ++channel)
 			mono += input.getReadPointer(channel)[i];
 
-		fifo[static_cast<size_t>(fifoWritePos)] = lowPass.processSample(0, highPass.processSample(0, mono * channelGain));
+		const auto filtered = lowPass.processSample(0, highPass.processSample(0, mono * channelGain));
+		const bool envelopeDetected = processEnvelopeSample(filtered, currentSensitivity);
+		if (currentMode != DetectionMode::Spectral && envelopeDetected && refractoryCounter <= 0)
+		{
+			const auto levelDb = juce::Decibels::gainToDecibels(std::max(fastEnv, 1.0e-6f));
+			const auto envelopeIntensity = juce::jlimit(0.0f, 1.0f,
+				juce::jmap(levelDb, kIntensityFloorDb, 0.0f, 0.0f, 1.0f));
+			player->trigger(i, intensityToVelocity(envelopeIntensity, currentVelocitySensitivity));
+			refractoryCounter = refractorySamples;
+			samplesSinceLastTrigger = 0;
+		}
+
+		fifo[static_cast<size_t>(fifoWritePos)] = filtered;
 		if (++fifoWritePos >= kFftSize)
 		{
 			fifoWritePos = 0;
@@ -151,14 +176,15 @@ void TransientDetector::process(const juce::AudioBuffer<float>& input, juce::Mid
 			continue;
 
 		samplesUntilHop = kHopSize;
-		if (!analyseHop())
+		float spectralIntensity = 0.0f;
+		const bool spectralDetected = analyseHop(spectralIntensity);
+		if (!spectralDetected || currentMode == DetectionMode::Envelope || refractoryCounter > 0
+			|| (currentMode == DetectionMode::Hybrid && samplesSinceLastTrigger < kFftSize))
 			continue;
 
-		if (noteActive.load())
-			sendNoteOff(midiOut, i);
-		activeNoteNumber = noteNumber.load();
-		sendNoteOn(midiOut, i);
+		player->trigger(i, intensityToVelocity(spectralIntensity, currentVelocitySensitivity));
 		refractoryCounter = refractorySamples;
+		samplesSinceLastTrigger = 0;
 	}
 }
 

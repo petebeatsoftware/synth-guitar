@@ -1,34 +1,49 @@
 #include "TransientDetector.h"
+#include "TestHelpers.h"
 
 #include <cmath>
-#include <iostream>
 #include <vector>
 
 namespace
 {
-int transientFailures = 0;
-
-void expectTransient(bool condition, const char* description)
-{
-	if (!condition)
-	{
-		std::cerr << "FAIL: " << description << '\n';
-		++transientFailures;
-	}
-}
-
 struct Event
 {
 	long long position;
 	bool isOn;
 	int note;
+	int velocity;
 };
 
 constexpr double kRate = 48000.0;
 constexpr int kBlock = 512;
 
+/** Detector with its player, holding note 48 from the first block. */
+struct Rig
+{
+	Rig() : player(std::make_shared<instrument::TriggeredPlayer>()), detector(player) {}
+
+	void prepare()
+	{
+		player->prepare(kRate, kBlock);
+		detector.prepare(kRate, kBlock);
+	}
+
+	void processBlock(const juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi, bool first)
+	{
+		juce::MidiBuffer input;
+		if (first)
+			input.addEvent(juce::MidiMessage::noteOn(1, 48, (juce::uint8) 100), 0);
+		player->processBlock(input, midi, buffer.getNumSamples());
+		detector.process(buffer);
+		player->finishBlock();
+	}
+
+	std::shared_ptr<instrument::TriggeredPlayer> player;
+	instrument::TransientDetector detector;
+};
+
 /** Runs the detector over a signal of silence with noise bursts at the given sample positions. */
-std::vector<Event> run(instrument::TransientDetector& detector, long long totalSamples,
+std::vector<Event> run(Rig& rig, long long totalSamples,
 					   const std::vector<long long>& burstStarts, float amplitude)
 {
 	std::vector<Event> events;
@@ -47,30 +62,170 @@ std::vector<Event> run(instrument::TransientDetector& detector, long long totalS
 		}
 
 		juce::MidiBuffer midi;
-		detector.process(buffer, midi);
+		rig.processBlock(buffer, midi, start == 0);
 		for (const auto metadata : midi)
 		{
 			const auto message = metadata.getMessage();
 			events.push_back({ start + metadata.samplePosition, message.isNoteOn(),
-							   message.getNoteNumber() });
+							   message.getNoteNumber(), static_cast<int>(message.getVelocity()) });
 		}
 	}
 	return events;
 }
 
+template <typename Signal>
+std::vector<Event> runSignal(Rig& rig, long long totalSamples, Signal signal)
+{
+	std::vector<Event> events;
+	juce::AudioBuffer<float> buffer(1, kBlock);
+	for (long long start = 0; start < totalSamples; start += kBlock)
+	{
+		for (int i = 0; i < kBlock; ++i)
+			buffer.setSample(0, i, signal(start + i));
+		juce::MidiBuffer midi;
+		rig.processBlock(buffer, midi, start == 0);
+		for (const auto metadata : midi)
+		{
+			const auto message = metadata.getMessage();
+			events.push_back({ start + metadata.samplePosition, message.isNoteOn(), message.getNoteNumber(),
+				static_cast<int>(message.getVelocity()) });
+		}
+	}
+	return events;
+}
+
+std::vector<long long> noteOns(const std::vector<Event>& events)
+{
+	std::vector<long long> positions;
+	for (const auto& event : events)
+		if (event.isOn)
+			positions.push_back(event.position);
+	return positions;
+}
+
+class TransientDetectorTests final : public test::Suite
+{
+public:
+	TransientDetectorTests() : Suite("TransientDetector") {}
+
+	void expectTransient(bool condition, const char* description)
+	{
+		expect(condition, description);
+	}
+
 void testSilenceProducesNoMidi()
 {
-	instrument::TransientDetector detector;
-	detector.prepare(kRate, kBlock);
-	const auto events = run(detector, 48000, {}, 0.0f);
-	expectTransient(events.empty(), "silence produces no MIDI");
-	expectTransient(!detector.isNoteActive(), "no note is active after silence");
+	for (const auto mode : { instrument::TransientDetector::DetectionMode::Spectral,
+							instrument::TransientDetector::DetectionMode::Envelope,
+							instrument::TransientDetector::DetectionMode::Hybrid })
+	{
+		beginTest("Silence produces no MIDI in mode " + juce::String(static_cast<int>(mode)));
+		Rig detector;
+		detector.prepare();
+		detector.detector.setDetectionMode(mode);
+		const auto events = run(detector, 48000, {}, 0.0f);
+		expectTransient(events.empty(), "silence produces no MIDI in any mode");
+		expectTransient(!detector.player->isNoteActive(), "no note is active after silence");
+	}
+}
+
+void testModeTimingAndHybridDeduplication()
+{
+	constexpr long long onset = 24000;
+	auto click = [onset](long long sample) { return sample >= onset && sample < onset + 48 ? 0.7f : 0.0f; };
+	Rig hybrid;
+	hybrid.prepare();
+	const auto hybridOns = noteOns(runSignal(hybrid, 48000, click));
+	Rig envelope;
+	envelope.prepare();
+	envelope.detector.setDetectionMode(instrument::TransientDetector::DetectionMode::Envelope);
+	const auto envelopeOns = noteOns(runSignal(envelope, 48000, click));
+	Rig spectral;
+	spectral.prepare();
+	spectral.detector.setDetectionMode(instrument::TransientDetector::DetectionMode::Spectral);
+	const auto spectralOns = noteOns(runSignal(spectral, 48000, click));
+	expectTransient(hybridOns.size() == 1, "hybrid click triggers once without delayed spectral duplicate");
+	expectTransient(envelopeOns.size() == 1, "envelope click triggers once");
+	expectTransient(spectralOns.size() == 1, "spectral click triggers once");
+	if (hybridOns.size() == 1 && envelopeOns.size() == 1)
+	{
+		expectTransient(hybridOns[0] == envelopeOns[0], "hybrid preserves immediate envelope timing");
+		expectTransient(hybridOns[0] >= onset && hybridOns[0] < onset + 144,
+						"hybrid triggers within 3 ms of click");
+	}
+	if (spectralOns.size() == 1 && envelopeOns.size() == 1)
+		expectTransient(spectralOns[0] > envelopeOns[0], "spectral click follows envelope click");
+}
+
+void testCloseClicksShareRefractoryPeriod()
+{
+	Rig rig;
+	rig.prepare();
+	const auto ons = noteOns(runSignal(rig, 48000, [](long long sample)
+	{
+		return (sample >= 24000 && sample < 24048) || (sample >= 25000 && sample < 25048)
+			? 0.7f : 0.0f;
+	}));
+	expectTransient(ons.size() == 1, "clicks within 50 ms share a refractory period");
+}
+
+void testSustainedToneDoesNotRetrigger()
+{
+	Rig rig;
+	rig.prepare();
+	const auto ons = noteOns(runSignal(rig, 48000, [](long long sample)
+	{
+		return sample < 24000 ? 0.0f : 0.3f * static_cast<float>(std::sin(
+			2.0 * juce::MathConstants<double>::pi * 440.0 * (sample - 24000) / kRate));
+	}));
+	expectTransient(ons.size() == 1, "sustained tone does not retrigger");
+}
+
+void testResetClearsEnvelopeAndSpectralState()
+{
+	Rig reused;
+	reused.prepare();
+	run(reused, 48000, { 24000 }, 0.5f);
+	reused.player->reset();
+	reused.detector.reset();
+	Rig fresh;
+	fresh.prepare();
+	const auto reusedEvents = run(reused, 48000, { 24000 }, 0.5f);
+	const auto freshEvents = run(fresh, 48000, { 24000 }, 0.5f);
+	expectTransient(reusedEvents.size() == freshEvents.size(), "reset matches fresh event count");
+	if (reusedEvents.size() == freshEvents.size())
+		for (size_t i = 0; i < reusedEvents.size(); ++i)
+			expectTransient(reusedEvents[i].position == freshEvents[i].position
+				&& reusedEvents[i].isOn == freshEvents[i].isOn, "reset matches fresh event timing");
+}
+
+void testSpectralCatchesEnvelopeMissedOnset()
+{
+	auto fade = [](long long sample)
+	{
+		if (sample < 24000 || sample >= 25440)
+			return 0.0f;
+		const auto elapsed = sample - 24000;
+		auto noise = static_cast<juce::uint32>(elapsed) * 1664525u + 1013904223u;
+		noise ^= noise >> 16;
+		const auto gain = 0.035f * static_cast<float>(elapsed) / 1440.0f;
+		return gain * (2.0f * static_cast<float>(noise & 0xffffu) / 65535.0f - 1.0f);
+	};
+	Rig envelope;
+	envelope.prepare();
+	envelope.detector.setDetectionMode(instrument::TransientDetector::DetectionMode::Envelope);
+	const auto envelopeOns = noteOns(runSignal(envelope, 48000, fade));
+	Rig hybrid;
+	hybrid.prepare();
+	const auto hybridOns = noteOns(runSignal(hybrid, 48000, fade));
+	expectTransient(envelopeOns.empty(), "slow fade does not cross envelope attack threshold");
+	expectTransient(hybridOns.size() == 1, "spectral path catches onset missed by envelope");
 }
 
 void testBurstTriggersNoteOnThenTimedNoteOff()
 {
-	instrument::TransientDetector detector;
-	detector.prepare(kRate, kBlock);
+	Rig detector;
+	detector.prepare();
 	const auto events = run(detector, 48000, { 24000 }, 0.5f);
 
 	expectTransient(events.size() == 2, "one burst produces a note-on and a note-off");
@@ -83,21 +238,21 @@ void testBurstTriggersNoteOnThenTimedNoteOff()
 		expectTransient(events[1].position - events[0].position == 9600,
 						"note-off occurs 0.2 s after note-on");
 	}
-	expectTransient(!detector.isNoteActive(), "note is inactive after note-off");
+	expectTransient(!detector.player->isNoteActive(), "note is inactive after note-off");
 }
 
 void testIsNoteActiveWhileNoteHeld()
 {
-	instrument::TransientDetector detector;
-	detector.prepare(kRate, kBlock);
+	Rig detector;
+	detector.prepare();
 	run(detector, 24000 + 2048, { 24000 }, 0.5f);
-	expectTransient(detector.isNoteActive(), "note is active shortly after a transient");
+	expectTransient(detector.player->isNoteActive(), "note is active shortly after a transient");
 }
 
 void testRetriggerSendsNoteOffBeforeNoteOn()
 {
-	instrument::TransientDetector detector;
-	detector.prepare(kRate, kBlock);
+	Rig detector;
+	detector.prepare();
 	const auto events = run(detector, 48000, { 24000, 24000 + 4800 }, 0.5f);
 
 	expectTransient(events.size() == 4, "two close transients produce four events");
@@ -113,13 +268,13 @@ void testRetriggerSendsNoteOffBeforeNoteOn()
 
 void testSensitivityControlsDetection()
 {
-	instrument::TransientDetector low;
-	low.prepare(kRate, kBlock);
-	low.setSensitivity(0.0f);
+	Rig low;
+	low.prepare();
+	low.detector.setSensitivity(0.0f);
 	const auto lowEvents = run(low, 48000, { 24000 }, 0.005f);
-	instrument::TransientDetector high;
-	high.prepare(kRate, kBlock);
-	high.setSensitivity(1.0f);
+	Rig high;
+	high.prepare();
+	high.detector.setSensitivity(1.0f);
 	const auto highEvents = run(high, 48000, { 24000 }, 0.005f);
 
 	expectTransient(lowEvents.empty(), "low sensitivity ignores a quiet transient");
@@ -128,8 +283,8 @@ void testSensitivityControlsDetection()
 
 void testTonalNoteOnsetIsDetected()
 {
-	instrument::TransientDetector detector;
-	detector.prepare(kRate, kBlock);
+	Rig detector;
+	detector.prepare();
 
 	bool detected = false;
 	juce::AudioBuffer<float> buffer(1, kBlock);
@@ -149,27 +304,134 @@ void testTonalNoteOnsetIsDetected()
 			buffer.setSample(0, i, value);
 		}
 		juce::MidiBuffer midi;
-		detector.process(buffer, midi);
+		detector.processBlock(buffer, midi, start == 0);
 		for (const auto metadata : midi)
 			detected = detected || metadata.getMessage().isNoteOn();
 	}
 	expectTransient(detected, "a tonal (piano-like) note onset triggers a note-on at default sensitivity");
 }
-}
 
-int runTransientDetectorTests()
+void runTest() override
 {
+	check("Velocity mapping endpoints interpolation and clamping", [&]
+	{
+		using Detector = instrument::TransientDetector;
+		for (int i = 0; i <= 100; ++i)
+		{
+			const float intensity = static_cast<float>(i) / 100.0f;
+			expectEquals(static_cast<int>(Detector::intensityToVelocity(intensity, 0.0f)), 127);
+			if (i > 0)
+				expect(Detector::intensityToVelocity(intensity, 1.0f)
+					>= Detector::intensityToVelocity(intensity - 0.01f, 1.0f));
+		}
+		expectEquals(static_cast<int>(Detector::intensityToVelocity(0.0f, 1.0f)), 1);
+		expectEquals(static_cast<int>(Detector::intensityToVelocity(1.0f, 1.0f)), 127);
+		expectEquals(static_cast<int>(Detector::intensityToVelocity(0.0f, 0.5f)), 64);
+		expectEquals(static_cast<int>(Detector::intensityToVelocity(-1.0f, 2.0f)), 1);
+		expectEquals(static_cast<int>(Detector::intensityToVelocity(2.0f, -1.0f)), 127);
+	});
+	for (const auto mode : { instrument::TransientDetector::DetectionMode::Envelope,
+		instrument::TransientDetector::DetectionMode::Spectral,
+		instrument::TransientDetector::DetectionMode::Hybrid })
+		check("Velocity follows transient intensity in mode " + juce::String(static_cast<int>(mode)), [&]
+		{
+			int velocities[2]{};
+			for (int level = 0; level < 2; ++level)
+			{
+				Rig rig;
+				rig.prepare();
+				rig.detector.setDetectionMode(mode);
+				rig.detector.setSensitivity(1.0f);
+				rig.detector.setVelocitySensitivity(1.0f);
+				const auto events = run(rig, 48000, { 24000 }, level == 0 ? 0.02f : 0.8f);
+				for (const auto& event : events)
+					if (event.isOn && velocities[level] == 0)
+						velocities[level] = event.velocity;
+				expect(velocities[level] > 0);
+			}
+			expect(velocities[1] > velocities[0], "Louder bursts produce higher velocity");
+			Rig fixed;
+			fixed.prepare();
+			fixed.detector.setDetectionMode(mode);
+			const auto events = run(fixed, 48000, { 24000 }, 0.5f);
+			expect(!noteOns(events).empty());
+			for (const auto& event : events)
+				if (event.isOn)
+					expectEquals(event.velocity, 127);
+		});
 	testSilenceProducesNoMidi();
+	beginTest("Mode timing and hybrid deduplication");
+	testModeTimingAndHybridDeduplication();
+	beginTest("Close clicks share refractory period");
+	testCloseClicksShareRefractoryPeriod();
+	beginTest("Sustained tone does not retrigger");
+	testSustainedToneDoesNotRetrigger();
+	beginTest("Reset matches fresh envelope and spectral state");
+	testResetClearsEnvelopeAndSpectralState();
+	beginTest("Spectral path catches envelope-missed onset");
+	testSpectralCatchesEnvelopeMissedOnset();
+	beginTest("Burst produces timed note-off");
 	testBurstTriggersNoteOnThenTimedNoteOff();
+	beginTest("Active state while note held");
 	testIsNoteActiveWhileNoteHeld();
+	beginTest("Retrigger sends note-off before note-on");
 	testRetriggerSendsNoteOffBeforeNoteOn();
+	beginTest("Sensitivity controls quiet transient detection");
 	testSensitivityControlsDetection();
+	beginTest("Tonal onset detection");
 	testTonalNoteOnsetIsDetected();
+	check("Configuration defaults and sensitivity limits", [&]
+	{
+		Rig rig;
+		expectEquals(rig.detector.getSensitivity(), 0.5f);
+		expectEquals(rig.detector.getVelocitySensitivity(), 0.0f);
+		rig.detector.setVelocitySensitivity(-1.0f);
+		expectEquals(rig.detector.getVelocitySensitivity(), 0.0f);
+		rig.detector.setVelocitySensitivity(2.0f);
+		expectEquals(rig.detector.getVelocitySensitivity(), 1.0f);
+		expect(rig.detector.getDetectionMode() == instrument::TransientDetector::DetectionMode::Hybrid);
+		rig.detector.setSensitivity(-1.0f);
+		expectEquals(rig.detector.getSensitivity(), 0.0f);
+		rig.detector.setSensitivity(2.0f);
+		expectEquals(rig.detector.getSensitivity(), 1.0f);
+	});
+	check("Empty buffers do not trigger", [&]
+	{
+		Rig rig;
+		rig.prepare();
+		juce::AudioBuffer<float> noChannels;
+		juce::AudioBuffer<float> noSamples(1, 0);
+		rig.detector.process(noChannels);
+		rig.detector.process(noSamples);
+		const auto events = run(rig, 48000, {}, 0.0f);
+		expect(events.empty());
+	});
+	check("Opposite stereo channels cancel before detection", [&]
+	{
+		Rig rig;
+		rig.prepare();
+		juce::AudioBuffer<float> audio(2, kBlock);
+		for (int i = 0; i < kBlock; ++i)
+		{
+			audio.setSample(0, i, 0.7f);
+			audio.setSample(1, i, -0.7f);
+		}
+		juce::MidiBuffer midi;
+		rig.processBlock(audio, midi, true);
+		expect(midi.isEmpty());
+	});
+	for (const auto rate : { 44100.0, 96000.0 })
+		check("Detection at sample rate " + juce::String(rate), [&]
+		{
+			Rig rig;
+			rig.player->prepare(rate, kBlock);
+			rig.detector.prepare(rate, kBlock);
+			rig.detector.setFrequencyRange(-10.0f, 100000.0f);
+			const auto events = noteOns(run(rig, 48000, { 24000 }, 0.5f));
+			expectEquals(static_cast<int>(events.size()), 1);
+		});
+}
+};
 
-	if (transientFailures != 0)
-		std::cerr << transientFailures << " transient detector test assertion(s) failed\n";
-	else
-		std::cout << "All transient detector tests passed\n";
-
-	return transientFailures;
+static TransientDetectorTests transientDetectorTests;
 }

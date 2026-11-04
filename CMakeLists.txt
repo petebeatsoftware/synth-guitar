@@ -115,8 +115,10 @@ if(INSTRUMENT_BUILD_PLUGIN)
     target_sources(instrument PRIVATE
         "src/SynthGuitarAudioProcessor.cpp"
         "src/SynthGuitarUserInterface.cpp"
+        src/MidiSplitter.cpp
         src/MidiTransposer.cpp
         src/TransientDetector.cpp
+        src/TriggeredPlayer.cpp
     )
     target_include_directories(instrument PRIVATE src)
     target_compile_features(instrument PUBLIC cxx_std_17)
@@ -141,12 +143,19 @@ if(INSTRUMENT_BUILD_TESTS)
     )
     juce_generate_juce_header(instrument_tests)
     target_sources(instrument_tests PRIVATE
+        tests/TestMain.cpp
         tests/MidiTransposerTests.cpp
+        tests/MidiSplitterTests.cpp
         tests/TransientDetectorTests.cpp
+        tests/TriggeredPlayerTests.cpp
+        tests/SynthGuitarAudioProcessorTests.cpp
+        tests/SynthGuitarUserInterfaceTests.cpp
         "src/SynthGuitarAudioProcessor.cpp"
         "src/SynthGuitarUserInterface.cpp"
+        src/MidiSplitter.cpp
         src/MidiTransposer.cpp
         src/TransientDetector.cpp
+        src/TriggeredPlayer.cpp
     )
     target_include_directories(instrument_tests PRIVATE src)
     target_compile_features(instrument_tests PRIVATE cxx_std_17)
@@ -160,8 +169,12 @@ if(INSTRUMENT_BUILD_TESTS)
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags
     )
-    add_test(NAME instrument_midi_transposer COMMAND instrument_tests)
-    add_test(NAME instrument_transient_detector COMMAND instrument_tests)
+    add_test(NAME instrument_midi_transposer COMMAND instrument_tests MidiTransposer)
+    add_test(NAME instrument_midi_splitter COMMAND instrument_tests MidiSplitter)
+    add_test(NAME instrument_transient_detector COMMAND instrument_tests TransientDetector)
+    add_test(NAME instrument_triggered_player COMMAND instrument_tests TriggeredPlayer)
+    add_test(NAME instrument_audio_processor COMMAND instrument_tests SynthGuitarAudioProcessor)
+    add_test(NAME instrument_user_interface COMMAND instrument_tests SynthGuitarUserInterface)
 endif()
 
 if(NOT INSTRUMENT_BUILD_PLUGIN AND NOT INSTRUMENT_BUILD_TESTS)

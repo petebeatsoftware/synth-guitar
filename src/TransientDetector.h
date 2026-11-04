@@ -7,40 +7,46 @@
 #include <memory>
 #include <vector>
 
+#include "TriggeredPlayer.h"
+
 namespace instrument
 {
 
-/** Detects transients in audio using spectral flux and emits MIDI.
+/** Detects transients in audio and triggers MIDI notes.
 
 	The input is band-limited by a 24dB/octave high pass and low pass before analysis.
-	A transient produces a note-on (see setNoteNumber). The matching
-	note-off is sent either just before the next transient's note-on, or
-	Detection latency is up to one hop (kHopSize samples).
+	Hybrid mode triggers promptly on envelope attacks and uses spectral flux to catch
+	onsets the envelope misses. Envelope-only and spectral-only modes are also available.
+	Spectral detection needs a window of audio and has more latency than envelope detection;
+	the hop size alone does not determine detection latency.
 */
 class TransientDetector
 {
 public:
-	static constexpr int kChannel = 1;
-	static constexpr juce::uint8 kVelocity = 100;
-	static constexpr double kNoteLengthSeconds = 0.2;
-	static constexpr int kFftOrder = 10;
-	static constexpr int kFftSize = 1 << kFftOrder;
-	static constexpr int kHopSize = 256;
+	enum class DetectionMode { Spectral, Envelope, Hybrid };
 
-	TransientDetector();
+	static constexpr int kFftOrder = 9;
+	static constexpr int kFftSize = 1 << kFftOrder;
+	static constexpr int kHopSize = 64;
+
+	explicit TransientDetector(std::shared_ptr<TriggeredPlayer> triggeredPlayer);
 
 	void prepare(double sampleRate, int maximumBlockSize);
 
-	/** Clears all detection state. Does not emit a note-off. */
+	/** Clears spectral and envelope detection state. Does not emit a note-off. */
 	void reset();
 
 	/** Sensitivity in the range 0 to 1. Higher values detect transients more eagerly. */
 	void setSensitivity(float newSensitivity) noexcept;
 	float getSensitivity() const noexcept { return sensitivity.load(); }
 
-	/** Note number emitted on detection. Takes effect on the next note-on. */
-	void setNoteNumber(int newNoteNumber) noexcept { noteNumber.store(juce::jlimit(0, 127, newNoteNumber)); }
-	int getNoteNumber() const noexcept { return noteNumber.load(); }
+	/** Velocity sensitivity, 0 (always 127) to 1 (full dynamic range). */
+	void setVelocitySensitivity(float value) noexcept { velocitySensitivity.store(juce::jlimit(0.0f, 1.0f, value)); }
+	float getVelocitySensitivity() const noexcept { return velocitySensitivity.load(); }
+	static juce::uint8 intensityToVelocity(float intensity, float sensitivity) noexcept;
+
+	void setDetectionMode(DetectionMode newMode) noexcept { mode.store(newMode); }
+	DetectionMode getDetectionMode() const noexcept { return mode.load(); }
 
 	/** Sets the 24dB/octave high pass and low pass cutoffs (Hz) applied before detection. */
 	void setFrequencyRange(float highPassHz, float lowPassHz) noexcept
@@ -49,23 +55,19 @@ public:
 		lowPassFrequency.store(lowPassHz);
 	}
 
-	/** Analyses the input and appends note-on/note-off events to midiOut. */
-	void process(const juce::AudioBuffer<float>& input, juce::MidiBuffer& midiOut);
-
-	/** True while a note-on has been sent without a corresponding note-off. */
-	bool isNoteActive() const noexcept { return noteActive.load(); }
+	/** Analyses the input and triggers the player on each detected transient. */
+	void process(const juce::AudioBuffer<float>& input);
 
 private:
-	bool analyseHop();
-	void sendNoteOn(juce::MidiBuffer& midiOut, int samplePosition);
-	void sendNoteOff(juce::MidiBuffer& midiOut, int samplePosition);
+	bool analyseHop(float& intensityOut);
+	bool processEnvelopeSample(float sample, float currentSensitivity) noexcept;
 
+	std::shared_ptr<TriggeredPlayer> player;
 	juce::dsp::FFT fft;
 	juce::dsp::LinkwitzRileyFilter<float> highPass;
 	juce::dsp::LinkwitzRileyFilter<float> lowPass;
 	float appliedHighPass = -1.0f;
 	float appliedLowPass = -1.0f;
-	int activeNoteNumber = 48;
 	juce::dsp::WindowingFunction<float> window;
 
 	std::vector<float> fifo;
@@ -78,18 +80,22 @@ private:
 	float previousFlux = 0.0f;
 	float fluxMean = 0.0f;
 	float meanCoefficient = 0.0f;
+	float fastEnv = 0.0f;
+	float slowEnv = 0.0f;
+	float fastAttackCoeff = 0.0f;
+	float fastReleaseCoeff = 0.0f;
+	float slowCoeff = 0.0f;
 
 	double sampleRate = 44100.0;
 	int refractorySamples = 0;
 	int refractoryCounter = 0;
-	int noteLengthSamples = 0;
-	int samplesSinceNoteOn = 0;
+	int samplesSinceLastTrigger = kFftSize;
 
 	std::atomic<float> sensitivity{ 0.5f };
-	std::atomic<int> noteNumber{ 48 };
+	std::atomic<float> velocitySensitivity{ 0.0f };
+	std::atomic<DetectionMode> mode{ DetectionMode::Hybrid };
 	std::atomic<float> highPassFrequency{ 20.0f };
 	std::atomic<float> lowPassFrequency{ 20000.0f };
-	std::atomic<bool> noteActive{ false };
 };
 
 } // namespace instrument
