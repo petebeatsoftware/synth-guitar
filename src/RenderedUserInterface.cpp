@@ -75,6 +75,7 @@ void RenderedUserInterface::loadAssets()
 		{ "Sensitivity", SynthGuitarAudioProcessor::singleSensitivityParameterId },
 		{ "HighFrequency", SynthGuitarAudioProcessor::singleHighFrequencyParameterId },
 		{ "Plectrums", SynthGuitarAudioProcessor::strumParameterId },
+		{ "Strum", SynthGuitarAudioProcessor::strumParameterId },
 		{ "DetectionMode", SynthGuitarAudioProcessor::detectionModeParameterId }
 	};
 	for (const auto& entry : layoutObject->getProperties())
@@ -116,7 +117,8 @@ void RenderedUserInterface::loadAssets()
 		const int width = entryObject->getProperty("width");
 		const int height = entryObject->getProperty("height");
 		const int frames = entryObject->getProperty("frames");
-		const int requiredFrames = controlName == "Strings" ? 4 : controlName == "DetectionMode" ? 3 : 2;
+		const int requiredFrames = controlName == "Strings" ? 4
+			: (controlName == "DetectionMode" || controlName == "Plectrums" || controlName == "Strum") ? 3 : 2;
 		if (width <= 0 || height <= 0 || frames <= 0
 			|| (!rotaryKnob && frames < requiredFrames)
 			|| x >= designWidth || y >= designHeight
@@ -160,7 +162,7 @@ void RenderedUserInterface::loadAssets()
 			control->setBounds(x, y, width, height);
 			if (!indicator)
 				control->attachChoice(*audioProcessor.getParameters().getParameter(parameterId),
-					controlName == "Plectrums" ? std::vector<int>{ 0, 1 } : std::vector<int>{ 0, 1, 2 });
+					std::vector<int>{ 0, 1, 2 });
 			if (controlName == "Detect") detectLight = control.get();
 			if (controlName == "MidiIn") midiInLight = control.get();
 			if (controlName == "MidiOut") midiOutLight = control.get();
@@ -184,7 +186,12 @@ void RenderedUserInterface::timerCallback()
 	if (midiInLight != nullptr) midiInLight->setFrame(audioProcessor.isInputNoteActive() ? 1 : 0);
 	const bool outputActive = audioProcessor.isOutputNoteActive();
 	if (midiOutLight != nullptr) midiOutLight->setFrame(outputActive ? 1 : 0);
-	if (strings != nullptr) strings->setFrame(outputActive ? 3 : 0);
+	if (strings != nullptr)
+	{
+		const auto strum = audioProcessor.getParameters().getRawParameterValue(
+			SynthGuitarAudioProcessor::strumParameterId)->load();
+		strings->setFrame(outputActive ? juce::jlimit(0, 2, juce::roundToInt(strum)) + 1 : 0);
+	}
 }
 
 void RenderedUserInterface::Content::paint(juce::Graphics& graphics)

@@ -143,13 +143,13 @@ public:
 			if (!(detect && midiIn && midiOut && strings && plectrums && detection))
 				return;
 			expect(plectrums->getX() < 0 && strings->getY() < 0, "Off-canvas crops still load");
-			for (int state = 0; state < 2; ++state)
+			for (int state = 0; state < 3; ++state)
 			{
 				test::setParameter(processor.getParameters(), "strum", static_cast<float>(state));
 				expectEquals(plectrums->getFrame(), state);
 				plectrums->keyPressed(juce::KeyPress(juce::KeyPress::spaceKey));
-				expectEquals(processor.getParameters().getRawParameterValue("strum")->load(), static_cast<float>(1 - state));
-				expectEquals(plectrums->getFrame(), 1 - state);
+				expectEquals(processor.getParameters().getRawParameterValue("strum")->load(), static_cast<float>((state + 1) % 3));
+				expectEquals(plectrums->getFrame(), (state + 1) % 3);
 			}
 			for (int state = 0; state < 3; ++state)
 			{
@@ -168,6 +168,14 @@ public:
 					juce::Timer::callPendingTimersSynchronously();
 				}
 			};
+			for (int state = 0; state < 3; ++state)
+			{
+				test::setParameter(processor.getParameters(), "strum", static_cast<float>(state));
+				juce::Thread::sleep(40);
+				juce::Timer::callPendingTimersSynchronously();
+				expectEquals(strings->getFrame(), 0, "Strings remain off in every strum mode without output notes");
+			}
+			test::setParameter(processor.getParameters(), "strum", 0.0f);
 			juce::AudioBuffer<float> audio(2, 512);
 			audio.clear();
 			juce::MidiBuffer midi;
@@ -209,9 +217,14 @@ public:
 			processor.processBlock(audio, midi);
 			expect(processor.isOutputNoteActive(), "Second burst triggers the held MIDI note");
 			waitForFrame(*midiOut, 1);
-			waitForFrame(*strings, 3);
 			expectEquals(midiOut->getFrame(), 1);
-			expectEquals(strings->getFrame(), 3);
+			for (const int state : { 0, 1, 2, 1, 0 })
+			{
+				test::setParameter(processor.getParameters(), "strum", static_cast<float>(state));
+				expect(processor.isOutputNoteActive(), "Output activity is held while testing UI frame selection");
+				waitForFrame(*strings, state + 1);
+				expectEquals(strings->getFrame(), state + 1, "Active Strings frame follows the strum mode");
+			}
 			processor.releaseResources();
 			waitForFrame(*midiIn, 0);
 			waitForFrame(*midiOut, 0);

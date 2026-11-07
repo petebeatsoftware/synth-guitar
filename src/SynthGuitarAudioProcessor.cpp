@@ -29,7 +29,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SynthGuitarAudioProcessor::c
 
     layout.add(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{ strumParameterId, 1 }, "Strum",
-        juce::StringArray{ "Low", "High" }, 1));
+        juce::StringArray{ "Low", "High", "Both" }, 1));
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{ singleSensitivityParameterId, 1 }, "Sensitivity",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.5f));
@@ -94,12 +94,20 @@ void SynthGuitarAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,
     midiScratchBuffer.clear();
     midiScratchBuffer.swapWith(midiMessages);
     inputNoteActive.store(updateNoteState(inputNotes, midiScratchBuffer));
-    const int strum = strumParam->load() >= 0.5f ? 1 : 0;
+    const int strum = juce::jlimit(0, 2, juce::roundToInt(strumParam->load()));
     singleInputBuffer.clear();
     if (strum != lastStrum)
     {
         singlePlayer->releaseNotes(midiMessages);
-        midiSplitter.addHeldNotes(strum, singleInputBuffer, 0);
+        if (strum == 2)
+        {
+            midiSplitter.addHeldNotes(0, singleInputBuffer, 0);
+            midiSplitter.addHeldNotes(1, singleInputBuffer, 0);
+        }
+        else
+        {
+            midiSplitter.addHeldNotes(strum, singleInputBuffer, 0);
+        }
     }
     lastStrum = strum;
     midiSplitter.processData(midiScratchBuffer, splitMidiBuffers);
@@ -109,7 +117,8 @@ void SynthGuitarAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,
     const auto low = juce::jlimit(20.0f, 19000.0f, singleLowFrequencyParam->load());
     const auto high = juce::jmin(20000.0f, juce::jmax(singleHighFrequencyParam->load(), low * 1.01f));
     singleDetector.setFrequencyRange(low, high);
-    singleInputBuffer.addEvents(splitMidiBuffers[static_cast<size_t>(strum)], 0, -1, 0);
+    singleInputBuffer.addEvents(strum == 2 ? midiScratchBuffer : splitMidiBuffers[static_cast<size_t>(strum)],
+                               0, -1, 0);
     singlePlayer->processBlock(singleInputBuffer, midiMessages, audio.getNumSamples());
     singleDetector.setSensitivity(singleSensitivityParam->load());
     singleDetector.setVelocitySensitivity(velocitySensitivity);

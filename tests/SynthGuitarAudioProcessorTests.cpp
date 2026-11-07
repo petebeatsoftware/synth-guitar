@@ -16,7 +16,7 @@ struct ParameterSpec
 
 constexpr ParameterSpec parameterSpecs[] {
 	{ "detectionMode", 2.0f, 0.0f, 2.0f },
-	{ "strum", 1.0f, 0.0f, 1.0f },
+	{ "strum", 1.0f, 0.0f, 2.0f },
 	{ "singleSensitivity", 0.5f, 0.0f, 1.0f },
 	{ "singleLowFrequency", 20.0f, 20.0f, 20000.0f },
 	{ "singleHighFrequency", 20000.0f, 20.0f, 20000.0f },
@@ -239,29 +239,37 @@ public:
 			processor.processBlock(empty, midi);
 			expect(midi.isEmpty());
 		});
-		for (const int strum : { 0, 1 })
-			check(strum == 0 ? "Single low strum plays lowest note" : "Single high strum plays upper note", [&]
+		for (const auto& modes : { std::pair<int, int>{ 0, 1 }, std::pair<int, int>{ 0, 2 },
+			std::pair<int, int>{ 1, 0 }, std::pair<int, int>{ 1, 2 },
+			std::pair<int, int>{ 2, 0 }, std::pair<int, int>{ 2, 1 } })
+			check("Strum routing and held-note replay from " + juce::String(modes.first)
+				+ " to " + juce::String(modes.second), [&]
 			{
+				const auto strum = modes.first;
+				const auto nextStrum = modes.second;
 				SynthGuitarAudioProcessor processor;
 				test::setParameter(processor.getParameters(), "strum", static_cast<float>(strum));
 				test::setParameter(processor.getParameters(), "detectionMode", 1.0f);
 				processor.prepareToPlay(48000.0, 512);
 				holdChord(processor);
 				const auto events = test::eventsOf(excite(processor));
-				expectEquals(static_cast<int>(events.size()), 1);
-				if (!events.empty())
+				expectEquals(static_cast<int>(events.size()), strum == 2 ? 2 : 1);
+				for (size_t i = 0; i < events.size(); ++i)
 				{
-					expect(events[0].second.isNoteOn());
-					expectEquals(events[0].second.getNoteNumber(), strum == 0 ? 48 : 60);
-					expectEquals(events[0].second.getChannel(), 1);
+					expect(events[i].second.isNoteOn());
+					expectEquals(events[i].second.getNoteNumber(), strum == 1 || i == 1 ? 60 : 48);
+					expectEquals(events[i].second.getChannel(), 1);
 				}
 				expect(processor.isSingleNoteActive());
-				test::setParameter(processor.getParameters(), "strum", static_cast<float>(1 - strum));
+				test::setParameter(processor.getParameters(), "strum", static_cast<float>(nextStrum));
 				juce::AudioBuffer<float> silence(2, 512);
 				silence.clear();
 				juce::MidiBuffer midi;
 				processor.processBlock(silence, midi);
-				expectEvent(test::eventsOf(midi), 0, 0, strum == 0 ? 48 : 60, false);
+				const auto released = test::eventsOf(midi);
+				expectEquals(static_cast<int>(released.size()), strum == 2 ? 2 : 1);
+				for (size_t i = 0; i < released.size(); ++i)
+					expectEvent(released, i, 0, strum == 1 || i == 1 ? 60 : 48, false);
 				expect(!processor.isSingleNoteActive());
 				for (int block = 0; block < 5; ++block)
 				{
@@ -269,14 +277,51 @@ public:
 					processor.processBlock(silence, midi);
 				}
 				const auto retriggered = test::eventsOf(excite(processor));
-				expectEquals(static_cast<int>(retriggered.size()), 1);
-				if (!retriggered.empty())
+				expectEquals(static_cast<int>(retriggered.size()), nextStrum == 2 ? 2 : 1);
+				for (size_t i = 0; i < retriggered.size(); ++i)
 				{
-					expect(retriggered[0].second.isNoteOn());
-					expectEquals(retriggered[0].second.getNoteNumber(), strum == 0 ? 60 : 48);
-					expectEquals(retriggered[0].second.getChannel(), 1);
+					expect(retriggered[i].second.isNoteOn());
+					expectEquals(retriggered[i].second.getNoteNumber(), nextStrum == 1 || i == 1 ? 60 : 48);
+					expectEquals(retriggered[i].second.getChannel(), 1);
 				}
 			});
+		check("Both strum keeps displaced low notes playing and releases only requested notes", [&]
+		{
+			SynthGuitarAudioProcessor processor;
+			test::setParameter(processor.getParameters(), "strum", 2.0f);
+			test::setParameter(processor.getParameters(), "detectionMode", 1.0f);
+			processor.prepareToPlay(48000.0, 512);
+			juce::AudioBuffer<float> silence(2, 512);
+			silence.clear();
+			auto midi = test::buffer({ { test::on(48), 0 }, { test::on(60), 1 }, { test::on(72), 2 } });
+			processor.processBlock(silence, midi);
+			const auto triggered = test::eventsOf(excite(processor));
+			expectEquals(static_cast<int>(triggered.size()), 3);
+			for (size_t i = 0; i < triggered.size(); ++i)
+			{
+				expect(triggered[i].second.isNoteOn());
+				expectEquals(triggered[i].second.getNoteNumber(), 48 + static_cast<int>(i) * 12);
+			}
+			midi = test::buffer({ { test::on(36), 5 }, { test::off(72), 7 } });
+			processor.processBlock(silence, midi);
+			const auto released = test::eventsOf(midi);
+			expectEquals(static_cast<int>(released.size()), 1);
+			expectEvent(released, 0, 7, 72, false);
+			expect(processor.isSingleNoteActive(), "Displaced low note and upper note remain playing");
+			midi = test::buffer({ { test::off(36), 3 }, { test::off(48), 5 }, { test::off(60), 7 } });
+			processor.processBlock(silence, midi);
+			const auto remaining = test::eventsOf(midi);
+			expectEquals(static_cast<int>(remaining.size()), 2);
+			expectEvent(remaining, 0, 5, 48, false);
+			expectEvent(remaining, 1, 7, 60, false);
+			expect(!processor.isSingleNoteActive());
+			for (int block = 0; block < 5; ++block)
+			{
+				midi.clear();
+				processor.processBlock(silence, midi);
+			}
+			expect(excite(processor).isEmpty(), "Released notes are not retriggered");
+		});
 		check("Release and reprepare clear playing and held notes", [&]
 		{
 			SynthGuitarAudioProcessor processor;
