@@ -26,7 +26,7 @@ private:
 		juce::StringArray errors;
 	};
 
-	void loadAssets(const juce::File& directory);
+	void loadAssets();
 	void timerCallback() override;
 
 	using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;

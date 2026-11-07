@@ -85,6 +85,17 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(JUCE)
 
+file(GLOB RENDERED_UI_ASSETS CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Rendered UI/*.png"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Rendered UI/*.json"
+)
+juce_add_binary_data(synthguitar_rendered_ui
+    HEADER_NAME RenderedUIData.h
+    NAMESPACE RenderedUIData
+    SOURCES ${RENDERED_UI_ASSETS}
+)
+set_target_properties(synthguitar_rendered_ui PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 if(INSTRUMENT_BUILD_PLUGIN)
     set(INSTRUMENT_PLUGIN_FORMATS VST3)
     if(APPLE)
@@ -124,14 +135,12 @@ if(INSTRUMENT_BUILD_PLUGIN)
     )
     target_include_directories(instrument PRIVATE src)
     target_compile_features(instrument PUBLIC cxx_std_17)
-    target_compile_definitions(instrument PRIVATE
-        SYNTHGUITAR_RENDERED_UI_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/Rendered UI"
-    )
     target_compile_definitions(instrument PUBLIC
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
     )
     target_link_libraries(instrument PRIVATE
+        synthguitar_rendered_ui
         juce::juce_audio_utils
         juce::juce_dsp
         juce::juce_recommended_config_flags
@@ -167,11 +176,11 @@ if(INSTRUMENT_BUILD_TESTS)
     target_include_directories(instrument_tests PRIVATE src)
     target_compile_features(instrument_tests PRIVATE cxx_std_17)
     target_compile_definitions(instrument_tests PRIVATE
-        SYNTHGUITAR_RENDERED_UI_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/Rendered UI"
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
     )
     target_link_libraries(instrument_tests PRIVATE
+        synthguitar_rendered_ui
         juce::juce_audio_utils
         juce::juce_dsp
         juce::juce_recommended_config_flags

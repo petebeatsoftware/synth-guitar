@@ -24,8 +24,8 @@
         "frames": 128
     },
     "Camera_DetectionMode": {
-        "setBounds": "208, 849, 175, 175",
-        "x": 208,
+        "setBounds": "194, 849, 175, 175",
+        "x": 194,
         "y": 849,
         "width": 175,
         "height": 175,

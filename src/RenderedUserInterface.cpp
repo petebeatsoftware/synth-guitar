@@ -1,13 +1,29 @@
 #include "RenderedUserInterface.h"
 
+#include "RenderedUIData.h"
 #include "SynthGuitarAudioProcessor.h"
+
+namespace
+{
+const char* findResource(const juce::String& filename, int& size)
+{
+	size = 0;
+	for (int index = 0; index < RenderedUIData::namedResourceListSize; ++index)
+	{
+		const auto* resourceName = RenderedUIData::namedResourceList[index];
+		if (filename == RenderedUIData::getNamedResourceOriginalFilename(resourceName))
+			return RenderedUIData::getNamedResource(resourceName, size);
+	}
+	return nullptr;
+}
+}
 
 RenderedUserInterface::RenderedUserInterface(SynthGuitarAudioProcessor& processor)
 	: AudioProcessorEditor(processor), audioProcessor(processor)
 {
 	addAndMakeVisible(content);
 	content.setBounds(0, 0, designWidth, designHeight);
-	loadAssets(juce::File(SYNTHGUITAR_RENDERED_UI_DIR));
+	loadAssets();
 	lastTransientCount = audioProcessor.getTransientCount();
 	timerCallback();
 	startTimerHz(30);
@@ -22,28 +38,35 @@ RenderedUserInterface::~RenderedUserInterface()
 	stopTimer();
 }
 
-void RenderedUserInterface::loadAssets(const juce::File& directory)
+void RenderedUserInterface::loadAssets()
 {
-	auto backgroundFile = directory.getChildFile("background.png");
-	if (!backgroundFile.existsAsFile())
-		backgroundFile = directory.getChildFile("Main.png");
-	content.background = juce::ImageFileFormat::loadFrom(backgroundFile);
-	if (content.background.isNull())
-		content.errors.add("Cannot load background: " + backgroundFile.getFullPathName());
-
-	const auto layoutFile = directory.getChildFile("juce_layout.json");
-	if (!layoutFile.existsAsFile())
+	juce::String backgroundName = "background.png";
+	int backgroundSize = 0;
+	const auto* backgroundData = findResource(backgroundName, backgroundSize);
+	if (backgroundData == nullptr)
 	{
-		content.errors.add("Cannot find layout: " + layoutFile.getFullPathName());
+		backgroundName = "Main.png";
+		backgroundData = findResource(backgroundName, backgroundSize);
+	}
+	if (backgroundData != nullptr)
+		content.background = juce::ImageCache::getFromMemory(backgroundData, backgroundSize);
+	if (content.background.isNull())
+		content.errors.add("Cannot load embedded background: " + backgroundName);
+
+	int layoutSize = 0;
+	const auto* layoutData = findResource("juce_layout.json", layoutSize);
+	if (layoutData == nullptr)
+	{
+		content.errors.add("Cannot find embedded layout: juce_layout.json");
 		return;
 	}
 
 	juce::var layout;
-	const auto result = juce::JSON::parse(layoutFile.loadFileAsString(), layout);
+	const auto result = juce::JSON::parse(juce::String::fromUTF8(layoutData, layoutSize), layout);
 	auto* layoutObject = layout.getDynamicObject();
 	if (result.failed() || layoutObject == nullptr)
 	{
-		content.errors.add("Invalid layout: " + layoutFile.getFullPathName() + " " + result.getErrorMessage());
+		content.errors.add("Invalid embedded layout: juce_layout.json " + result.getErrorMessage());
 		return;
 	}
 
@@ -103,14 +126,20 @@ void RenderedUserInterface::loadAssets(const juce::File& directory)
 			continue;
 		}
 
-		auto imageFile = directory.getChildFile(name + ".png");
-		if (!imageFile.existsAsFile())
-			imageFile = directory.getChildFile(name + "_filmstrip.png");
-		const auto image = juce::ImageFileFormat::loadFrom(imageFile);
+		auto imageName = name + ".png";
+		int imageSize = 0;
+		const auto* imageData = findResource(imageName, imageSize);
+		if (imageData == nullptr)
+		{
+			imageName = name + "_filmstrip.png";
+			imageData = findResource(imageName, imageSize);
+		}
+		const auto image = imageData != nullptr
+			? juce::ImageCache::getFromMemory(imageData, imageSize) : juce::Image();
 		if (image.isNull() || image.getHeight() < frames || image.getHeight() % frames != 0)
 		{
 			content.errors.add("Cannot load vertical filmstrip with " + juce::String(frames)
-							   + " frames: " + imageFile.getFullPathName());
+							   + " frames: " + imageName);
 			continue;
 		}
 

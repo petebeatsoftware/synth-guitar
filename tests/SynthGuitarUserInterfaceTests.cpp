@@ -1,9 +1,16 @@
 #include "SynthGuitarAudioProcessor.h"
 #include "RenderedUserInterface.h"
+#include "RenderedUIData.h"
 #include "TestHelpers.h"
 
 namespace
 {
+juce::var loadLayout()
+{
+	return juce::JSON::parse(juce::String::fromUTF8(RenderedUIData::juce_layout_json,
+		RenderedUIData::juce_layout_jsonSize));
+}
+
 class RenderedUserInterfaceTests final : public test::Suite
 {
 public:
@@ -11,6 +18,26 @@ public:
 
 	void runTest() override
 	{
+		check("Embedded layout and PNG resources decode without files", [&]
+		{
+			expect(loadLayout().isObject(), "Embedded layout is a valid JSON object");
+			bool backgroundFound = false;
+			for (int index = 0; index < RenderedUIData::namedResourceListSize; ++index)
+			{
+				const auto* resourceName = RenderedUIData::namedResourceList[index];
+				const juce::String filename = RenderedUIData::getNamedResourceOriginalFilename(resourceName);
+				if (!filename.endsWith(".png"))
+					continue;
+				int size = 0;
+				const auto* data = RenderedUIData::getNamedResource(resourceName, size);
+				expect(data != nullptr && size > 0, filename + " has embedded data");
+				if (data == nullptr || size <= 0)
+					continue;
+				expect(juce::ImageCache::getFromMemory(data, size).isValid(), filename + " decodes from memory");
+				backgroundFound = backgroundFound || filename == "background.png" || filename == "Main.png";
+			}
+			expect(backgroundFound, "Background is embedded");
+		});
 		check("Factory creates the expected resizable editor", [&]
 		{
 			SynthGuitarAudioProcessor processor;
@@ -23,8 +50,8 @@ public:
 		});
 		check("Rendered control loads, attaches and scales with its canvas", [&]
 		{
-			const auto currentLayout = juce::JSON::parse(
-				juce::File(SYNTHGUITAR_RENDERED_UI_DIR).getChildFile("juce_layout.json"));
+			const auto currentLayout = loadLayout();
+			expect(!currentLayout["Camera_LowFrequency"].isVoid(), "Low frequency layout is embedded");
 			if (currentLayout["Camera_LowFrequency"].isVoid())
 				return;
 			SynthGuitarAudioProcessor processor;
@@ -42,9 +69,7 @@ public:
 			expect(knob != nullptr, "Provided JSON and filmstrip load successfully");
 			if (knob == nullptr)
 				return;
-			const auto layout = juce::JSON::parse(
-				juce::File(SYNTHGUITAR_RENDERED_UI_DIR).getChildFile("juce_layout.json"));
-			const auto entry = layout["Camera_LowFrequency"];
+			const auto entry = currentLayout["Camera_LowFrequency"];
 			const juce::Rectangle<int> expectedBounds(static_cast<int>(entry["x"]), static_cast<int>(entry["y"]),
 				static_cast<int>(entry["width"]), static_cast<int>(entry["height"]));
 			expect(knob->getBounds() == expectedBounds);
@@ -71,8 +96,7 @@ public:
 		{
 			SynthGuitarAudioProcessor processor;
 			RenderedUserInterface editor(processor);
-			const auto layout = juce::JSON::parse(
-				juce::File(SYNTHGUITAR_RENDERED_UI_DIR).getChildFile("juce_layout.json"));
+			const auto layout = loadLayout();
 			for (const auto& mapping : { std::pair<const char*, const char*>{ "Camera_Sensitivity", "singleSensitivity" },
 				std::pair<const char*, const char*>{ "Camera_HighFrequency", "singleHighFrequency" } })
 			{
