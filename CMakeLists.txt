@@ -114,7 +114,6 @@ if(INSTRUMENT_BUILD_PLUGIN)
     juce_generate_juce_header(instrument)
     target_sources(instrument PRIVATE
         "src/SynthGuitarAudioProcessor.cpp"
-        "src/SynthGuitarUserInterface.cpp"
         src/FilmstripKnob.cpp
         src/FilmstripControl.cpp
         src/RenderedUserInterface.cpp
@@ -157,7 +156,6 @@ if(INSTRUMENT_BUILD_TESTS)
         tests/SynthGuitarAudioProcessorTests.cpp
         tests/SynthGuitarUserInterfaceTests.cpp
         "src/SynthGuitarAudioProcessor.cpp"
-        "src/SynthGuitarUserInterface.cpp"
         src/FilmstripKnob.cpp
         src/FilmstripControl.cpp
         src/RenderedUserInterface.cpp
@@ -184,7 +182,7 @@ if(INSTRUMENT_BUILD_TESTS)
     add_test(NAME instrument_transient_detector COMMAND instrument_tests TransientDetector)
     add_test(NAME instrument_triggered_player COMMAND instrument_tests TriggeredPlayer)
     add_test(NAME instrument_audio_processor COMMAND instrument_tests SynthGuitarAudioProcessor)
-    add_test(NAME instrument_user_interface COMMAND instrument_tests SynthGuitarUserInterface)
+    add_test(NAME instrument_user_interface COMMAND instrument_tests RenderedUserInterface)
 endif()
 
 if(NOT INSTRUMENT_BUILD_PLUGIN AND NOT INSTRUMENT_BUILD_TESTS)

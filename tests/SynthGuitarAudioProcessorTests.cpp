@@ -15,15 +15,9 @@ struct ParameterSpec
 };
 
 constexpr ParameterSpec parameterSpecs[] {
-	{ "sensitivityLow", 0.5f, 0.0f, 1.0f },
-	{ "sensitivityMid", 0.5f, 0.0f, 1.0f },
-	{ "sensitivityHigh", 0.5f, 0.0f, 1.0f },
 	{ "detectionMode", 2.0f, 0.0f, 2.0f },
-	{ "bandMode", 1.0f, 0.0f, 1.0f },
 	{ "strum", 1.0f, 0.0f, 1.0f },
 	{ "singleSensitivity", 0.5f, 0.0f, 1.0f },
-	{ "lowToMid", 200.0f, 20.0f, 20000.0f },
-	{ "midToHigh", 1000.0f, 20.0f, 20000.0f },
 	{ "singleLowFrequency", 20.0f, 20.0f, 20000.0f },
 	{ "singleHighFrequency", 20000.0f, 20.0f, 20000.0f },
 	{ "velocitySensitivity", 0.0f, 0.0f, 100.0f }
@@ -91,35 +85,33 @@ public:
 			expect(processor.getTransientCount() > before, "Transients counted without held notes");
 			expect(!processor.isOutputNoteActive());
 		});
-		for (const int mode : { 0, 1 })
-			check("Velocity sensitivity reaches detectors in band mode " + juce::String(mode), [&]
+		check("Velocity sensitivity reaches the single-band detector", [&]
+		{
+			for (const float sensitivity : { 0.0f, 100.0f })
 			{
-				for (const float sensitivity : { 0.0f, 100.0f })
+				SynthGuitarAudioProcessor processor;
+				test::setParameter(processor.getParameters(), "velocitySensitivity", sensitivity);
+				processor.prepareToPlay(48000.0, 512);
+				holdChord(processor);
+				const auto output = excite(processor);
+				bool noteOn = false;
+				bool dynamic = false;
+				for (const auto metadata : output)
 				{
-					SynthGuitarAudioProcessor processor;
-					test::setParameter(processor.getParameters(), "bandMode", static_cast<float>(mode));
-					test::setParameter(processor.getParameters(), "velocitySensitivity", sensitivity);
-					processor.prepareToPlay(48000.0, 512);
-					holdChord(processor);
-					const auto output = excite(processor);
-					bool noteOn = false;
-					bool dynamic = false;
-					for (const auto metadata : output)
+					const auto message = metadata.getMessage();
+					if (message.isNoteOn())
 					{
-						const auto message = metadata.getMessage();
-						if (message.isNoteOn())
-						{
-							noteOn = true;
-							dynamic = dynamic || message.getVelocity() < 127;
-							if (sensitivity == 0.0f)
-								expectEquals(static_cast<int>(message.getVelocity()), 127);
-						}
+						noteOn = true;
+						dynamic = dynamic || message.getVelocity() < 127;
+						if (sensitivity == 0.0f)
+							expectEquals(static_cast<int>(message.getVelocity()), 127);
 					}
-					expect(noteOn);
-					if (sensitivity == 100.0f)
-						expect(dynamic);
 				}
-			});
+				expect(noteOn);
+				if (sensitivity == 100.0f)
+					expect(dynamic);
+			}
+		});
 		check("Plugin metadata and single-program API", [&]
 		{
 			SynthGuitarAudioProcessor processor;
@@ -212,28 +204,26 @@ public:
 				check("Silent output " + juce::String(rate) + " Hz / " + juce::String(blockSize) + " samples", [&]
 				{
 					for (const int channels : { 1, 2 })
-						for (const int bandMode : { 0, 1 })
-						{
-							SynthGuitarAudioProcessor processor;
-							auto layout = processor.getBusesLayout();
-							const auto channelSet = channels == 1 ? juce::AudioChannelSet::mono() : juce::AudioChannelSet::stereo();
-							layout.inputBuses.set(0, channelSet);
-							layout.outputBuses.set(0, channelSet);
-							expect(processor.setBusesLayout(layout));
-							test::setParameter(processor.getParameters(), processor.bandModeParameterId, static_cast<float>(bandMode));
-							processor.prepareToPlay(rate, blockSize);
-							juce::AudioBuffer<float> audio(channels, blockSize);
-							for (int channel = 0; channel < channels; ++channel)
-								for (int sample = 0; sample < blockSize; ++sample)
-									audio.setSample(channel, sample, std::sin(static_cast<float>((sample + channel * 17) * 0.13)));
-							juce::MidiBuffer midi;
-							processor.processBlock(audio, midi);
-							expectEquals(audio.getNumChannels(), channels);
-							expectEquals(processor.getTotalNumOutputChannels(), channels);
-							for (int channel = 0; channel < channels; ++channel)
-								for (int sample = 0; sample < blockSize; ++sample)
-									expectEquals(audio.getSample(channel, sample), 0.0f);
-						}
+					{
+						SynthGuitarAudioProcessor processor;
+						auto layout = processor.getBusesLayout();
+						const auto channelSet = channels == 1 ? juce::AudioChannelSet::mono() : juce::AudioChannelSet::stereo();
+						layout.inputBuses.set(0, channelSet);
+						layout.outputBuses.set(0, channelSet);
+						expect(processor.setBusesLayout(layout));
+						processor.prepareToPlay(rate, blockSize);
+						juce::AudioBuffer<float> audio(channels, blockSize);
+						for (int channel = 0; channel < channels; ++channel)
+							for (int sample = 0; sample < blockSize; ++sample)
+								audio.setSample(channel, sample, std::sin(static_cast<float>((sample + channel * 17) * 0.13)));
+						juce::MidiBuffer midi;
+						processor.processBlock(audio, midi);
+						expectEquals(audio.getNumChannels(), channels);
+						expectEquals(processor.getTotalNumOutputChannels(), channels);
+						for (int channel = 0; channel < channels; ++channel)
+							for (int sample = 0; sample < blockSize; ++sample)
+								expectEquals(audio.getSample(channel, sample), 0.0f);
+					}
 				});
 		check("Silent input consumes held MIDI without generating notes; zero samples are safe", [&]
 		{
@@ -244,8 +234,6 @@ public:
 			auto midi = test::buffer({ { test::on(60), 0 } });
 			processor.processBlock(audio, midi);
 			expect(midi.isEmpty());
-			for (int band = 0; band < processor.numBands; ++band)
-				expect(!processor.isTransientNoteActive(band));
 			expect(!processor.isSingleNoteActive());
 			juce::AudioBuffer<float> empty(2, 0);
 			processor.processBlock(empty, midi);
@@ -255,7 +243,6 @@ public:
 			check(strum == 0 ? "Single low strum plays lowest note" : "Single high strum plays upper note", [&]
 			{
 				SynthGuitarAudioProcessor processor;
-				test::setParameter(processor.getParameters(), "bandMode", 0.0f);
 				test::setParameter(processor.getParameters(), "strum", static_cast<float>(strum));
 				test::setParameter(processor.getParameters(), "detectionMode", 1.0f);
 				processor.prepareToPlay(48000.0, 512);
@@ -269,48 +256,30 @@ public:
 					expectEquals(events[0].second.getChannel(), 1);
 				}
 				expect(processor.isSingleNoteActive());
-				test::setParameter(processor.getParameters(), "bandMode", 1.0f);
+				test::setParameter(processor.getParameters(), "strum", static_cast<float>(1 - strum));
 				juce::AudioBuffer<float> silence(2, 512);
 				silence.clear();
 				juce::MidiBuffer midi;
 				processor.processBlock(silence, midi);
 				expectEvent(test::eventsOf(midi), 0, 0, strum == 0 ? 48 : 60, false);
 				expect(!processor.isSingleNoteActive());
+				for (int block = 0; block < 5; ++block)
+				{
+					midi.clear();
+					processor.processBlock(silence, midi);
+				}
+				const auto retriggered = test::eventsOf(excite(processor));
+				expectEquals(static_cast<int>(retriggered.size()), 1);
+				if (!retriggered.empty())
+				{
+					expect(retriggered[0].second.isNoteOn());
+					expectEquals(retriggered[0].second.getNoteNumber(), strum == 0 ? 60 : 48);
+					expectEquals(retriggered[0].second.getChannel(), 1);
+				}
 			});
-		check("Multi-band triggers route notes to each band's channel and release on mode change", [&]
-		{
-			SynthGuitarAudioProcessor processor;
-			test::setParameter(processor.getParameters(), "detectionMode", 1.0f);
-			for (const auto* id : processor.sensitivityParameterIds)
-				test::setParameter(processor.getParameters(), id, 1.0f);
-			processor.prepareToPlay(48000.0, 512);
-			holdChord(processor);
-			const auto events = test::eventsOf(excite(processor));
-			for (int band = 0; band < processor.numBands; ++band)
-			{
-				bool found = false;
-				for (const auto& event : events)
-					found = found || (event.second.isNoteOn() && event.second.getChannel() == band + 1
-									  && event.second.getNoteNumber() == (band == 0 ? 48 : 60));
-				expect(found, "Band " + juce::String(band) + " emits expected note");
-				expect(processor.isTransientNoteActive(band));
-			}
-			test::setParameter(processor.getParameters(), "bandMode", 0.0f);
-			juce::AudioBuffer<float> silence(2, 512);
-			silence.clear();
-			juce::MidiBuffer midi;
-			processor.processBlock(silence, midi);
-			expectEquals(midi.getNumEvents(), 3);
-			for (int band = 0; band < processor.numBands; ++band)
-			{
-				expectEvent(test::eventsOf(midi), static_cast<size_t>(band), 0, band == 0 ? 48 : 60, false, band + 1);
-				expect(!processor.isTransientNoteActive(band));
-			}
-		});
 		check("Release and reprepare clear playing and held notes", [&]
 		{
 			SynthGuitarAudioProcessor processor;
-			test::setParameter(processor.getParameters(), "bandMode", 0.0f);
 			processor.prepareToPlay(48000.0, 512);
 			holdChord(processor);
 			excite(processor);
