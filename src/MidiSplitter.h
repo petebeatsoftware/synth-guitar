@@ -8,17 +8,17 @@
 namespace instrument
 {
 
-/** Splits one MIDI stream into three.
+/** Splits one MIDI stream into two.
 
-	The lowest held note goes to output 0. All other notes go to outputs 1 and 2.
+	The lowest held note goes to output 0. All other notes go to output 1.
 	All non-note messages go to every output. When a new note is lower than every
-	held note, the previous lowest note is moved from output 0 to outputs 1 and 2.
+	held note, the previous lowest note is moved from output 0 to output 1.
 	Releasing the lowest note does not promote another held note.
 */
 class MidiSplitter
 {
 public:
-	static constexpr int kNumOutputs = 3;
+	static constexpr int kNumOutputs = 2;
 
 	MidiSplitter() = default;
 

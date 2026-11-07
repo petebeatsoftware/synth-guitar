@@ -9,7 +9,6 @@ void MidiSplitter::addToUpper(std::array<juce::MidiBuffer, kNumOutputs>& outputs
 							  const juce::MidiMessage& message, int position)
 {
 	outputs[1].addEvent(message, position);
-	outputs[2].addEvent(message, position);
 }
 
 void MidiSplitter::reset()

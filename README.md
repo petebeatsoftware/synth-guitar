@@ -1,8 +1,7 @@
 # Instrument
 
-A JUCE-based audio/MIDI effect plugin, built with CMake. The first version is a
-small “Hello World” shell: audio passes through unchanged and MIDI notes are
-transposed down one semitone.
+A JUCE-based audio/MIDI effect plugin, built with CMake, that generates
+transient-triggered MIDI from incoming notes and audio.
 
 ## Formats
 
@@ -11,7 +10,15 @@ transposed down one semitone.
 - AAX for Pro Tools is optional and requires the Avid AAX SDK and applicable
   developer access
 
-## Build
+## Configure, build, and test
+
+On Windows just run
+
+```
+./scripts/configure.ps1 -Build -Test dev
+```
+
+## Build on other platforms
 
 Install the prerequisites for your platform, then run:
 

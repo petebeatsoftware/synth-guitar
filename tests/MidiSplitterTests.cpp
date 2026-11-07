@@ -40,12 +40,12 @@ void testRouting()
 	beginTest("First note routes to low output only");
 	splitter.processData(makeBuffer({ { on(60), 5 } }), out);
 	expect(eventsOf(out[0]).size() == 1 && eventsOf(out[0])[0].second.isNoteOn(), "first note goes to buffer 1");
-	expect(out[1].isEmpty() && out[2].isEmpty(), "first note not in buffers 2 and 3");
+	expect(out[1].isEmpty(), "first note not in buffer 2");
 
-	beginTest("Higher note routes to both upper outputs");
+	beginTest("Higher note routes to upper output only");
 	splitter.processData(makeBuffer({ { on(64), 7 } }), out);
 	expect(out[0].isEmpty(), "higher note not in buffer 1");
-	expect(eventsOf(out[1]).size() == 1 && eventsOf(out[2]).size() == 1, "higher note goes to buffers 2 and 3");
+	expect(eventsOf(out[1]).size() == 1, "higher note goes to buffer 2");
 
 	beginTest("Lower note displaces prior low note at the same sample");
 	splitter.processData(makeBuffer({ { on(50), 9 } }), out);
@@ -53,19 +53,16 @@ void testRouting()
 	expect(low.size() == 2 && low[0].second.isNoteOff() && low[0].second.getNoteNumber() == 60
 			   && low[1].second.isNoteOn() && low[1].second.getNoteNumber() == 50,
 		   "new lower note moves old low note out of buffer 1");
-	for (int i = 1; i <= 2; ++i)
-	{
-		const auto up = eventsOf(out[static_cast<size_t>(i)]);
-		expect(up.size() == 1 && up[0].first == 9 && up[0].second.isNoteOn()
-				   && up[0].second.getNoteNumber() == 60,
-			   "old low note moves to buffers 2 and 3 at same position");
-	}
+	const auto up = eventsOf(out[1]);
+	expect(up.size() == 1 && up[0].first == 9 && up[0].second.isNoteOn()
+			   && up[0].second.getNoteNumber() == 60,
+		   "old low note moves to buffer 2 at same position");
 
 	beginTest("Note-offs follow their routed outputs");
 	splitter.processData(makeBuffer({ { off(64), 1 }, { off(50), 2 }, { off(60), 3 } }), out);
 	expect(eventsOf(out[0]).size() == 1 && eventsOf(out[0])[0].second.getNoteNumber() == 50,
 		   "low note-off goes to buffer 1 only");
-	expect(eventsOf(out[1]).size() == 2 && eventsOf(out[2]).size() == 2, "other note-offs go to buffers 2 and 3");
+	expect(eventsOf(out[1]).size() == 2, "other note-offs go to buffer 2");
 }
 
 void testNoPromotion()
@@ -86,7 +83,7 @@ void testVelocityZeroAndOtherMessages()
 	const auto bend = juce::MidiMessage::pitchWheel(1, 9000);
 	splitter.processData(makeBuffer({ { on(40), 0 }, { zero, 1 }, { cc, 2 }, { bend, 3 } }), out);
 	expect(eventsOf(out[0]).size() == 4, "velocity-0 note-on follows the low note and other data in buffer 1");
-	expect(eventsOf(out[1]).size() == 2 && eventsOf(out[2]).size() == 2, "other data goes to all buffers");
+	expect(eventsOf(out[1]).size() == 2, "other data goes to all buffers");
 
 	splitter.processData(makeBuffer({ { on(70), 0 } }), out);
 	expect(!out[0].isEmpty() && out[1].isEmpty(), "note after low note released becomes lowest");
@@ -129,7 +126,7 @@ void runTest() override
 		Outputs out;
 		splitter.processData(makeBuffer({ { test::on(40, 3, 73), 0 },
 			{ test::on(60, 4, 81), 1 }, { test::on(70, 5, 95), 2 }, { test::off(70, 5), 3 } }), out);
-		for (int output = 0; output < 3; ++output)
+		for (int output = 0; output < instrument::MidiSplitter::kNumOutputs; ++output)
 		{
 			juce::MidiBuffer held;
 			splitter.addHeldNotes(output, held, 17);

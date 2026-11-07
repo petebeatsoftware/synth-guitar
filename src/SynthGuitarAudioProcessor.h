@@ -5,7 +5,6 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 
 #include "MidiSplitter.h"
-#include "MidiTransposer.h"
 #include "TransientDetector.h"
 #include "TriggeredPlayer.h"
 
@@ -54,7 +53,7 @@ public:
     static constexpr const char* velocitySensitivityParameterId = "velocitySensitivity";
 
 private:
-    static constexpr int numSplitBuffers = 3;
+    static constexpr int numSplitBuffers = instrument::MidiSplitter::kNumOutputs;
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     using NoteState = std::array<std::bitset<128>, 16>;
     static bool updateNoteState(NoteState& notes, const juce::MidiBuffer& midi);
