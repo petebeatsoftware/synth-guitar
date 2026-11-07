@@ -28,11 +28,25 @@ foreach(format IN LISTS INSTRUMENT_PLUGIN_FORMATS)
         message(FATAL_ERROR "JUCE did not create the expected ${format} target.")
     endif()
 
-    install(TARGETS "${plugin_format_target}"
-        BUNDLE DESTINATION "${plugin_destination}" COMPONENT "${component}"
-        LIBRARY DESTINATION "${plugin_destination}" COMPONENT "${component}"
-        RUNTIME DESTINATION "${plugin_destination}" COMPONENT "${component}"
-    )
+    if(format STREQUAL "VST3" AND NOT WIN32 AND NOT APPLE)
+        # JUCE builds the Linux VST3 as <Name>.vst3/Contents/<arch>-linux/<Name>.so;
+        # install the whole bundle directory rather than just the shared object.
+        get_target_property(plugin_bundle_dir "${plugin_format_target}" JUCE_PLUGIN_ARTEFACT_FILE)
+        if(NOT plugin_bundle_dir)
+            message(FATAL_ERROR "JUCE_PLUGIN_ARTEFACT_FILE is not set for ${plugin_format_target}.")
+        endif()
+        install(DIRECTORY "${plugin_bundle_dir}"
+            DESTINATION "${plugin_destination}"
+            COMPONENT "${component}"
+            USE_SOURCE_PERMISSIONS
+        )
+    else()
+        install(TARGETS "${plugin_format_target}"
+            BUNDLE DESTINATION "${plugin_destination}" COMPONENT "${component}"
+            LIBRARY DESTINATION "${plugin_destination}" COMPONENT "${component}"
+            RUNTIME DESTINATION "${plugin_destination}" COMPONENT "${component}"
+        )
+    endif()
     list(APPEND INSTRUMENT_INSTALL_COMPONENTS "${component}")
 endforeach()
 
