@@ -19,6 +19,8 @@ jobs:
         os: [windows-2022, macos-26, ubuntu-22.04]
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Enable MSVC for Ninja
         if: runner.os == 'Windows'
