@@ -111,7 +111,7 @@ if(INSTRUMENT_BUILD_PLUGIN)
         PLUGIN_MANUFACTURER_CODE PBTS
         PLUGIN_CODE IN01
         PRODUCT_NAME "Pete Beat Synth Guitar"
-        Audio passthrough and transient-triggered MIDI
+        DESCRIPTION "Audio passthrough and transient-triggered MIDI"
         VERSION ${PROJECT_VERSION}
         IS_SYNTH FALSE
         IS_MIDI_EFFECT TRUE
@@ -138,6 +138,7 @@ if(INSTRUMENT_BUILD_PLUGIN)
     target_compile_definitions(instrument PUBLIC
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
+        JUCE_VST3_EMULATE_MIDI_CC_WITH_PARAMETERS=0
     )
     target_link_libraries(instrument PRIVATE
         synthguitar_rendered_ui
@@ -178,6 +179,7 @@ if(INSTRUMENT_BUILD_TESTS)
     target_compile_definitions(instrument_tests PRIVATE
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
+        JUCE_VST3_EMULATE_MIDI_CC_WITH_PARAMETERS=0
     )
     target_link_libraries(instrument_tests PRIVATE
         synthguitar_rendered_ui

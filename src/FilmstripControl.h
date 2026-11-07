@@ -13,7 +13,6 @@ public:
 	int getFrame() const noexcept { return currentFrame; }
 	void paint(juce::Graphics& graphics) override;
 	void mouseDown(const juce::MouseEvent& event) override;
-	bool keyPressed(const juce::KeyPress& key) override;
 
 private:
 	void advanceChoice();

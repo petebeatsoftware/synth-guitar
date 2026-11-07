@@ -143,11 +143,30 @@ public:
 			if (!(detect && midiIn && midiOut && strings && plectrums && detection))
 				return;
 			expect(plectrums->getX() < 0 && strings->getY() < 0, "Off-canvas crops still load");
+			for (auto* control : { plectrums, detection })
+			{
+				expect(!control->getWantsKeyboardFocus(), "Choice controls do not request keyboard focus");
+				expect(!control->getMouseClickGrabsKeyboardFocus(), "Clicks do not grab keyboard focus");
+				const auto frame = control->getFrame();
+				for (const auto key : { juce::KeyPress::spaceKey, juce::KeyPress::returnKey })
+				{
+					expect(!control->keyPressed(juce::KeyPress(key)), "Transport keys remain unhandled");
+					expectEquals(control->getFrame(), frame, "Transport keys do not change choices");
+				}
+			}
+			auto clickControl = [](FilmstripControl& control)
+			{
+				const auto now = juce::Time::getCurrentTime();
+				control.mouseDown(juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),
+					juce::Point<float>(1.0f, 1.0f), juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier),
+					1.0f, 0.0f, 0.0f, 0.0f, 0.0f, &control, &control, now,
+					juce::Point<float>(1.0f, 1.0f), now, 1, false));
+			};
 			for (int state = 0; state < 3; ++state)
 			{
 				test::setParameter(processor.getParameters(), "strum", static_cast<float>(state));
 				expectEquals(plectrums->getFrame(), state);
-				plectrums->keyPressed(juce::KeyPress(juce::KeyPress::spaceKey));
+				clickControl(*plectrums);
 				expectEquals(processor.getParameters().getRawParameterValue("strum")->load(), static_cast<float>((state + 1) % 3));
 				expectEquals(plectrums->getFrame(), (state + 1) % 3);
 			}
@@ -155,7 +174,7 @@ public:
 			{
 				test::setParameter(processor.getParameters(), "detectionMode", static_cast<float>(state));
 				expectEquals(detection->getFrame(), state);
-				detection->keyPressed(juce::KeyPress(juce::KeyPress::returnKey));
+				clickControl(*detection);
 				expectEquals(detection->getFrame(), (state + 1) % 3);
 				expectEquals(processor.getParameters().getRawParameterValue("detectionMode")->load(), static_cast<float>((state + 1) % 3));
 			}
