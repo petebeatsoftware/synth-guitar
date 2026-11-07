@@ -137,11 +137,16 @@ public:
 			auto* midiIn = findControl("Camera_MidiIn");
 			auto* midiOut = findControl("Camera_MidiOut");
 			auto* strings = findControl("Camera_Strings");
+			auto* topLights = findControl("Camera_TopLights");
 			auto* plectrums = findControl("Camera_Plectrums");
 			auto* detection = findControl("Camera_DetectionMode");
-			expect(detect && midiIn && midiOut && strings && plectrums && detection);
-			if (!(detect && midiIn && midiOut && strings && plectrums && detection))
+			expect(detect && midiIn && midiOut && strings && topLights && plectrums && detection);
+			if (!(detect && midiIn && midiOut && strings && topLights && plectrums && detection))
 				return;
+			expect(topLights->getParentComponent()->getChildComponent(0) == topLights,
+				"TopLights is behind all controls and above the painted background");
+			expect(topLights->getBounds() == juce::Rectangle<int>(117, -58, 561, 249));
+			expectEquals(topLights->getFrame(), strings->getFrame(), "Initial frames match");
 			expect(plectrums->getX() < 0 && strings->getY() < 0, "Off-canvas crops still load");
 			for (auto* control : { plectrums, detection })
 			{
@@ -193,6 +198,7 @@ public:
 				juce::Thread::sleep(40);
 				juce::Timer::callPendingTimersSynchronously();
 				expectEquals(strings->getFrame(), 0, "Strings remain off in every strum mode without output notes");
+				expectEquals(topLights->getFrame(), strings->getFrame(), "Idle TopLights follows Strings");
 			}
 			test::setParameter(processor.getParameters(), "strum", 0.0f);
 			juce::AudioBuffer<float> audio(2, 512);
@@ -213,6 +219,7 @@ public:
 			expectEquals(detect->getFrame(), 1, "Transient flashes without held MIDI notes");
 			expectEquals(midiOut->getFrame(), 0);
 			expectEquals(strings->getFrame(), 0);
+			expectEquals(topLights->getFrame(), strings->getFrame(), "Transient alone leaves TopLights off");
 			waitForFrame(*detect, 0);
 			expectEquals(detect->getFrame(), 0, "Flash expires independently of MIDI");
 			processor.releaseResources();
@@ -243,6 +250,7 @@ public:
 				expect(processor.isOutputNoteActive(), "Output activity is held while testing UI frame selection");
 				waitForFrame(*strings, state + 1);
 				expectEquals(strings->getFrame(), state + 1, "Active Strings frame follows the strum mode");
+				expectEquals(topLights->getFrame(), strings->getFrame(), "Active TopLights follows Strings");
 			}
 			processor.releaseResources();
 			waitForFrame(*midiIn, 0);
@@ -251,6 +259,7 @@ public:
 			expectEquals(midiIn->getFrame(), 0);
 			expectEquals(midiOut->getFrame(), 0);
 			expectEquals(strings->getFrame(), 0);
+			expectEquals(topLights->getFrame(), strings->getFrame(), "TopLights turns off with Strings");
 		});
 		check("Filmstrip selects first, middle and last frames using normalized slider values", [&]
 		{

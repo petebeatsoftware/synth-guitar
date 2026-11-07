@@ -54,6 +54,12 @@ Distribution package names can vary. VST3 is the initial Linux plugin format.
 
 ## Configure, build, and test
 
+On Windows just run
+
+```
+./scripts/configure.ps1 -Build -Test
+```
+
 From the repository root:
 
 ```sh

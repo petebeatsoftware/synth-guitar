@@ -85,7 +85,7 @@ void RenderedUserInterface::loadAssets()
 		const bool rotaryKnob = controlName == "LowFrequency" || controlName == "Sensitivity"
 			|| controlName == "HighFrequency";
 		const bool indicator = controlName == "Detect" || controlName == "MidiIn"
-			|| controlName == "MidiOut" || controlName == "Strings";
+			|| controlName == "MidiOut" || controlName == "Strings" || controlName == "TopLights";
 		const char* parameterId = nullptr;
 		if (name.startsWith("Camera_"))
 			for (const auto& mapping : parameterIds)
@@ -117,7 +117,7 @@ void RenderedUserInterface::loadAssets()
 		const int width = entryObject->getProperty("width");
 		const int height = entryObject->getProperty("height");
 		const int frames = entryObject->getProperty("frames");
-		const int requiredFrames = controlName == "Strings" ? 4
+		const int requiredFrames = (controlName == "Strings" || controlName == "TopLights") ? 4
 			: (controlName == "DetectionMode" || controlName == "Plectrums" || controlName == "Strum") ? 3 : 2;
 		if (width <= 0 || height <= 0 || frames <= 0
 			|| (!rotaryKnob && frames < requiredFrames)
@@ -167,10 +167,12 @@ void RenderedUserInterface::loadAssets()
 			if (controlName == "MidiIn") midiInLight = control.get();
 			if (controlName == "MidiOut") midiOutLight = control.get();
 			if (controlName == "Strings") strings = control.get();
+			if (controlName == "TopLights") topLights = control.get();
 			content.addAndMakeVisible(*control);
 			controls.push_back(std::move(control));
 		}
 	}
+	if (topLights != nullptr) topLights->toBack();
 }
 
 void RenderedUserInterface::timerCallback()
@@ -186,11 +188,13 @@ void RenderedUserInterface::timerCallback()
 	if (midiInLight != nullptr) midiInLight->setFrame(audioProcessor.isInputNoteActive() ? 1 : 0);
 	const bool outputActive = audioProcessor.isOutputNoteActive();
 	if (midiOutLight != nullptr) midiOutLight->setFrame(outputActive ? 1 : 0);
-	if (strings != nullptr)
+	if (strings != nullptr || topLights != nullptr)
 	{
 		const auto strum = audioProcessor.getParameters().getRawParameterValue(
 			SynthGuitarAudioProcessor::strumParameterId)->load();
-		strings->setFrame(outputActive ? juce::jlimit(0, 2, juce::roundToInt(strum)) + 1 : 0);
+		const int frame = outputActive ? juce::jlimit(0, 2, juce::roundToInt(strum)) + 1 : 0;
+		if (strings != nullptr) strings->setFrame(frame);
+		if (topLights != nullptr) topLights->setFrame(frame);
 	}
 }
 

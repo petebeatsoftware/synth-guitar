@@ -41,6 +41,7 @@ private:
 	FilmstripControl* midiInLight = nullptr;
 	FilmstripControl* midiOutLight = nullptr;
 	FilmstripControl* strings = nullptr;
+	FilmstripControl* topLights = nullptr;
 	juce::uint64 lastTransientCount = 0;
 	double detectUntil = 0.0;
 	std::vector<std::unique_ptr<SliderAttachment>> attachments;
