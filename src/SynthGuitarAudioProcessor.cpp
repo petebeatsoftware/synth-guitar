@@ -29,7 +29,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SynthGuitarAudioProcessor::c
 
     layout.add(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{ strumParameterId, 1 }, "Strum",
-        juce::StringArray{ "Low", "High", "Both" }, 1));
+        juce::StringArray{ "Low", "High", "Both" }, 2));
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{ singleSensitivityParameterId, 1 }, "Sensitivity",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.5f));

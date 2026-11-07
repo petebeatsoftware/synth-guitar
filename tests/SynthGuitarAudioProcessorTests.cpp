@@ -14,9 +14,10 @@ struct ParameterSpec
 	float maximum;
 };
 
+// (name, default, min, max) for all parameters in the plugin. Used to verify that the plugin's parameters are correctly defined.
 constexpr ParameterSpec parameterSpecs[] {
 	{ "detectionMode", 2.0f, 0.0f, 2.0f },
-	{ "strum", 1.0f, 0.0f, 2.0f },
+	{ "strum", 2.0f, 0.0f, 2.0f },
 	{ "singleSensitivity", 0.5f, 0.0f, 1.0f },
 	{ "singleLowFrequency", 20.0f, 20.0f, 20000.0f },
 	{ "singleHighFrequency", 20000.0f, 20.0f, 20000.0f },
