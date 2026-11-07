@@ -3,6 +3,7 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_dsp/juce_dsp.h>
 
+#include <array>
 #include <atomic>
 #include <memory>
 #include <vector>
@@ -14,7 +15,8 @@ namespace instrument
 
 /** Detects transients in audio and triggers MIDI notes.
 
-	The input is band-limited by a 24dB/octave high pass and low pass before analysis.
+	The input is band-limited by a 24dB/octave Butterworth high pass and low pass (two stacked
+	TPT state variable stages each) before analysis.
 	Hybrid mode triggers promptly on envelope attacks and uses spectral flux to catch
 	onsets the envelope misses. Envelope-only and spectral-only modes are also available.
 	Spectral detection needs a window of audio and has more latency than envelope detection;
@@ -65,8 +67,9 @@ private:
 
 	std::shared_ptr<TriggeredPlayer> player;
 	juce::dsp::FFT fft;
-	juce::dsp::LinkwitzRileyFilter<float> highPass;
-	juce::dsp::LinkwitzRileyFilter<float> lowPass;
+	static constexpr int kFilterStages = 2;
+	std::array<juce::dsp::StateVariableTPTFilter<float>, kFilterStages> highPass;
+	std::array<juce::dsp::StateVariableTPTFilter<float>, kFilterStages> lowPass;
 	float appliedHighPass = -1.0f;
 	float appliedLowPass = -1.0f;
 	juce::dsp::WindowingFunction<float> window;

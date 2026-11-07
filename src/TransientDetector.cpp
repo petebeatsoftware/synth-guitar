@@ -1,6 +1,7 @@
 #include "TransientDetector.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace instrument
@@ -11,6 +12,8 @@ namespace
 constexpr float kCompression = 100.0f;
 constexpr float kFluxFullScale = 20.0f;
 constexpr float kIntensityFloorDb = -60.0f;
+// Q values of the two 2nd-order sections forming a 4th-order Butterworth response.
+constexpr std::array<float, 2> kButterworthQ{ 0.54119610f, 1.30656296f };
 }
 
 TransientDetector::TransientDetector(std::shared_ptr<TriggeredPlayer> triggeredPlayer)
@@ -27,11 +30,16 @@ void TransientDetector::prepare(double newSampleRate, int maximumBlockSize)
 {
 	juce::ignoreUnused(maximumBlockSize);
 	sampleRate = newSampleRate > 0.0 ? newSampleRate : 44100.0;
-	highPass.setType(juce::dsp::LinkwitzRileyFilterType::highpass);
-	lowPass.setType(juce::dsp::LinkwitzRileyFilterType::lowpass);
 	const juce::dsp::ProcessSpec spec{ sampleRate, static_cast<juce::uint32>(juce::jmax(1, maximumBlockSize)), 1 };
-	highPass.prepare(spec);
-	lowPass.prepare(spec);
+	for (size_t stage = 0; stage < kFilterStages; ++stage)
+	{
+		highPass[stage].setType(juce::dsp::StateVariableTPTFilterType::highpass);
+		lowPass[stage].setType(juce::dsp::StateVariableTPTFilterType::lowpass);
+		highPass[stage].setResonance(kButterworthQ[stage]);
+		lowPass[stage].setResonance(kButterworthQ[stage]);
+		highPass[stage].prepare(spec);
+		lowPass[stage].prepare(spec);
+	}
 	appliedHighPass = -1.0f;
 	appliedLowPass = -1.0f;
 	refractorySamples = static_cast<int>(0.05 * sampleRate);
@@ -44,8 +52,10 @@ void TransientDetector::prepare(double newSampleRate, int maximumBlockSize)
 
 void TransientDetector::reset()
 {
-	highPass.reset();
-	lowPass.reset();
+	for (auto& filter : highPass)
+		filter.reset();
+	for (auto& filter : lowPass)
+		filter.reset();
 	std::fill(fifo.begin(), fifo.end(), 0.0f);
 	std::fill(previousMagnitudes.begin(), previousMagnitudes.end(), 0.0f);
 	fifoWritePos = 0;
@@ -76,8 +86,10 @@ bool TransientDetector::processEnvelopeSample(float sample, float currentSensiti
 	const auto amplitude = std::abs(sample);
 	fastEnv += (amplitude > fastEnv ? fastAttackCoeff : fastReleaseCoeff) * (amplitude - fastEnv);
 	slowEnv += slowCoeff * (amplitude - slowEnv);
-	const auto ratio = juce::jmap(currentSensitivity, 6.0f, 1.5f);
-	const auto gate = juce::jmap(currentSensitivity, 0.05f, 0.002f);
+	// Tuned for the Butterworth band-pass: sharper attacks and -3dB (not -6dB) band edges
+	// give slightly higher fast-envelope peaks than the previous Linkwitz-Riley filters.
+	const auto ratio = juce::jmap(currentSensitivity, 6.5f, 1.6f);
+	const auto gate = juce::jmap(currentSensitivity, 0.056f, 0.0022f);
 	return fastEnv > gate && fastEnv > slowEnv * ratio;
 }
 
@@ -133,12 +145,14 @@ void TransientDetector::process(const juce::AudioBuffer<float>& input)
 	const auto targetLowPass = juce::jlimit(1.0f, maxCutoff, lowPassFrequency.load());
 	if (targetHighPass != appliedHighPass)
 	{
-		highPass.setCutoffFrequency(targetHighPass);
+		for (auto& filter : highPass)
+			filter.setCutoffFrequency(targetHighPass);
 		appliedHighPass = targetHighPass;
 	}
 	if (targetLowPass != appliedLowPass)
 	{
-		lowPass.setCutoffFrequency(targetLowPass);
+		for (auto& filter : lowPass)
+			filter.setCutoffFrequency(targetLowPass);
 		appliedLowPass = targetLowPass;
 	}
 
@@ -153,7 +167,11 @@ void TransientDetector::process(const juce::AudioBuffer<float>& input)
 		for (int channel = 0; channel < numChannels; ++channel)
 			mono += input.getReadPointer(channel)[i];
 
-		const auto filtered = lowPass.processSample(0, highPass.processSample(0, mono * channelGain));
+		auto filtered = mono * channelGain;
+		for (auto& filter : highPass)
+			filtered = filter.processSample(0, filtered);
+		for (auto& filter : lowPass)
+			filtered = filter.processSample(0, filtered);
 		const bool envelopeDetected = processEnvelopeSample(filtered, currentSensitivity);
 		if (currentMode != DetectionMode::Spectral && envelopeDetected && refractoryCounter <= 0)
 		{
