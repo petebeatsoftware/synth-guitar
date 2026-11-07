@@ -161,6 +161,7 @@ void TransientDetector::process(const juce::AudioBuffer<float>& input)
 			const auto envelopeIntensity = juce::jlimit(0.0f, 1.0f,
 				juce::jmap(levelDb, kIntensityFloorDb, 0.0f, 0.0f, 1.0f));
 			player->trigger(i, intensityToVelocity(envelopeIntensity, currentVelocitySensitivity));
+			transientCount.fetch_add(1);
 			refractoryCounter = refractorySamples;
 			samplesSinceLastTrigger = 0;
 		}
@@ -183,6 +184,7 @@ void TransientDetector::process(const juce::AudioBuffer<float>& input)
 			continue;
 
 		player->trigger(i, intensityToVelocity(spectralIntensity, currentVelocitySensitivity));
+		transientCount.fetch_add(1);
 		refractoryCounter = refractorySamples;
 		samplesSinceLastTrigger = 0;
 	}

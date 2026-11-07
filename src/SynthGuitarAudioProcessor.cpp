@@ -1,6 +1,6 @@
 #include "SynthGuitarAudioProcessor.h"
 
-#include "SynthGuitarUserInterface.h"
+#include "RenderedUserInterface.h"
 
 SynthGuitarAudioProcessor::SynthGuitarAudioProcessor()
     : AudioProcessor(BusesProperties()
@@ -81,6 +81,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SynthGuitarAudioProcessor::c
 
 void SynthGuitarAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
+    clearNoteActivity();
     for (auto& detector : detectors)
         detector.prepare(sampleRate, samplesPerBlock);
     for (auto& player : players)
@@ -98,6 +99,7 @@ void SynthGuitarAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
 
 void SynthGuitarAudioProcessor::releaseResources()
 {
+    clearNoteActivity();
     for (auto& detector : detectors)
         detector.reset();
     for (auto& player : players)
@@ -131,6 +133,7 @@ void SynthGuitarAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,
 
     midiScratchBuffer.clear();
     midiScratchBuffer.swapWith(midiMessages);
+    inputNoteActive.store(updateNoteState(inputNotes, midiScratchBuffer));
     const int bandMode = juce::jlimit(0, 1, static_cast<int>(bandModeParam->load()));
     if (lastBandMode >= 0 && bandMode != lastBandMode)
     {
@@ -196,12 +199,44 @@ void SynthGuitarAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,
             player->finishBlock();
     }
 
+    outputNoteActive.store(updateNoteState(outputNotes, midiMessages));
     audio.clear();
+}
+
+bool SynthGuitarAudioProcessor::updateNoteState(NoteState& notes, const juce::MidiBuffer& midi)
+{
+    for (const auto metadata : midi)
+    {
+        const auto message = metadata.getMessage();
+        if (message.getChannel() < 1 || message.getChannel() > 16)
+            continue;
+        auto& channelNotes = notes[static_cast<size_t>(message.getChannel() - 1)];
+        if (message.isNoteOn())
+            channelNotes.set(static_cast<size_t>(message.getNoteNumber()));
+        else if (message.isNoteOff())
+            channelNotes.reset(static_cast<size_t>(message.getNoteNumber()));
+        else if (message.isAllNotesOff() || message.isAllSoundOff())
+            channelNotes.reset();
+    }
+    for (const auto& channelNotes : notes)
+        if (channelNotes.any())
+            return true;
+    return false;
+}
+
+void SynthGuitarAudioProcessor::clearNoteActivity()
+{
+    for (auto& notes : inputNotes)
+        notes.reset();
+    for (auto& notes : outputNotes)
+        notes.reset();
+    inputNoteActive.store(false);
+    outputNoteActive.store(false);
 }
 
 juce::AudioProcessorEditor* SynthGuitarAudioProcessor::createEditor()
 {
-    return new SynthGuitarUserInterface(*this);
+    return new RenderedUserInterface(*this);
 }
 
 bool SynthGuitarAudioProcessor::hasEditor() const

@@ -115,6 +115,9 @@ if(INSTRUMENT_BUILD_PLUGIN)
     target_sources(instrument PRIVATE
         "src/SynthGuitarAudioProcessor.cpp"
         "src/SynthGuitarUserInterface.cpp"
+        src/FilmstripKnob.cpp
+        src/FilmstripControl.cpp
+        src/RenderedUserInterface.cpp
         src/MidiSplitter.cpp
         src/MidiTransposer.cpp
         src/TransientDetector.cpp
@@ -122,6 +125,9 @@ if(INSTRUMENT_BUILD_PLUGIN)
     )
     target_include_directories(instrument PRIVATE src)
     target_compile_features(instrument PUBLIC cxx_std_17)
+    target_compile_definitions(instrument PRIVATE
+        SYNTHGUITAR_RENDERED_UI_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/Rendered UI"
+    )
     target_compile_definitions(instrument PUBLIC
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
@@ -152,6 +158,9 @@ if(INSTRUMENT_BUILD_TESTS)
         tests/SynthGuitarUserInterfaceTests.cpp
         "src/SynthGuitarAudioProcessor.cpp"
         "src/SynthGuitarUserInterface.cpp"
+        src/FilmstripKnob.cpp
+        src/FilmstripControl.cpp
+        src/RenderedUserInterface.cpp
         src/MidiSplitter.cpp
         src/MidiTransposer.cpp
         src/TransientDetector.cpp
@@ -160,6 +169,7 @@ if(INSTRUMENT_BUILD_TESTS)
     target_include_directories(instrument_tests PRIVATE src)
     target_compile_features(instrument_tests PRIVATE cxx_std_17)
     target_compile_definitions(instrument_tests PRIVATE
+        SYNTHGUITAR_RENDERED_UI_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/Rendered UI"
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
     )

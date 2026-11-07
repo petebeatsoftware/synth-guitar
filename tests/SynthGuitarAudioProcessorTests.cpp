@@ -59,6 +59,38 @@ public:
 
 	void runTest() override
 	{
+		check("MIDI activity tracks channels, note-offs and lifecycle resets", [&]
+		{
+			SynthGuitarAudioProcessor processor;
+			processor.prepareToPlay(48000.0, 512);
+			juce::AudioBuffer<float> audio(2, 512);
+			audio.clear();
+			juce::MidiBuffer midi;
+			midi.addEvent(juce::MidiMessage::noteOn(1, 60, (juce::uint8) 100), 0);
+			midi.addEvent(juce::MidiMessage::noteOn(2, 60, (juce::uint8) 100), 1);
+			processor.processBlock(audio, midi);
+			expect(processor.isInputNoteActive());
+			expect(!processor.isOutputNoteActive());
+			midi.clear();
+			midi.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
+			processor.processBlock(audio, midi);
+			expect(processor.isInputNoteActive(), "Other channel remains held");
+			midi.clear();
+			midi.addEvent(juce::MidiMessage::allNotesOff(2), 0);
+			processor.processBlock(audio, midi);
+			expect(!processor.isInputNoteActive());
+			holdChord(processor);
+			expect(processor.isInputNoteActive());
+			excite(processor);
+			expect(processor.isOutputNoteActive());
+			processor.releaseResources();
+			expect(!processor.isInputNoteActive() && !processor.isOutputNoteActive());
+			processor.prepareToPlay(48000.0, 512);
+			const auto before = processor.getTransientCount();
+			excite(processor);
+			expect(processor.getTransientCount() > before, "Transients counted without held notes");
+			expect(!processor.isOutputNoteActive());
+		});
 		for (const int mode : { 0, 1 })
 			check("Velocity sensitivity reaches detectors in band mode " + juce::String(mode), [&]
 			{

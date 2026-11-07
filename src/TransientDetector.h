@@ -57,6 +57,7 @@ public:
 
 	/** Analyses the input and triggers the player on each detected transient. */
 	void process(const juce::AudioBuffer<float>& input);
+	juce::uint64 getTransientCount() const noexcept { return transientCount.load(); }
 
 private:
 	bool analyseHop(float& intensityOut);
@@ -92,6 +93,7 @@ private:
 	int samplesSinceLastTrigger = kFftSize;
 
 	std::atomic<float> sensitivity{ 0.5f };
+	std::atomic<juce::uint64> transientCount{ 0 };
 	std::atomic<float> velocitySensitivity{ 0.0f };
 	std::atomic<DetectionMode> mode{ DetectionMode::Hybrid };
 	std::atomic<float> highPassFrequency{ 20.0f };

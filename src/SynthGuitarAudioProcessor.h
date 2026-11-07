@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <bitset>
 #include <juce_audio_utils/juce_audio_utils.h>
 
 #include "MidiSplitter.h"
@@ -39,6 +40,15 @@ public:
     juce::AudioProcessorValueTreeState& getParameters() noexcept { return parameters; }
     bool isTransientNoteActive(int band) const noexcept { return players[static_cast<size_t>(band)]->isNoteActive(); }
     bool isSingleNoteActive() const noexcept { return singlePlayer->isNoteActive(); }
+    bool isInputNoteActive() const noexcept { return inputNoteActive.load(); }
+    bool isOutputNoteActive() const noexcept { return outputNoteActive.load(); }
+    juce::uint64 getTransientCount() const noexcept
+    {
+        auto count = singleDetector.getTransientCount();
+        for (const auto& detector : detectors)
+            count += detector.getTransientCount();
+        return count;
+    }
 
     static constexpr int numBands = 3;
     static constexpr const char* sensitivityParameterIds[numBands] = { "sensitivityLow", "sensitivityMid", "sensitivityHigh" };
@@ -54,8 +64,15 @@ public:
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    using NoteState = std::array<std::bitset<128>, 16>;
+    static bool updateNoteState(NoteState& notes, const juce::MidiBuffer& midi);
+    void clearNoteActivity();
 
     juce::AudioProcessorValueTreeState parameters;
+    NoteState inputNotes{};
+    NoteState outputNotes{};
+    std::atomic<bool> inputNoteActive{ false };
+    std::atomic<bool> outputNoteActive{ false };
     std::array<std::atomic<float>*, numBands> sensitivityParams{};
     std::atomic<float>* lowToMidParam = nullptr;
     std::atomic<float>* midToHighParam = nullptr;
