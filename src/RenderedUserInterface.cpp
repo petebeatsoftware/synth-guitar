@@ -74,6 +74,7 @@ void RenderedUserInterface::loadAssets()
 		{ "LowFrequency", SynthGuitarAudioProcessor::singleLowFrequencyParameterId },
 		{ "Sensitivity", SynthGuitarAudioProcessor::singleSensitivityParameterId },
 		{ "HighFrequency", SynthGuitarAudioProcessor::singleHighFrequencyParameterId },
+		{ "VelocitySensitivity", SynthGuitarAudioProcessor::velocitySensitivityParameterId },
 		{ "Plectrums", SynthGuitarAudioProcessor::strumParameterId },
 		{ "Strum", SynthGuitarAudioProcessor::strumParameterId },
 		{ "DetectionMode", SynthGuitarAudioProcessor::detectionModeParameterId }
@@ -83,7 +84,7 @@ void RenderedUserInterface::loadAssets()
 		const auto name = entry.name.toString();
 		const auto controlName = name.startsWith("Camera_") ? name.substring(7) : juce::String();
 		const bool rotaryKnob = controlName == "LowFrequency" || controlName == "Sensitivity"
-			|| controlName == "HighFrequency";
+			|| controlName == "HighFrequency" || controlName == "VelocitySensitivity";
 		const bool indicator = controlName == "Detect" || controlName == "MidiIn"
 			|| controlName == "MidiOut" || controlName == "Strings" || controlName == "TopLights";
 		const char* parameterId = nullptr;

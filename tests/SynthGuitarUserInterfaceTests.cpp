@@ -94,13 +94,14 @@ public:
 				}
 			}
 		});
-		check("Sensitivity and high frequency filmstrips attach in both directions", [&]
+		check("Sensitivity, high frequency and velocity sensitivity filmstrips attach in both directions", [&]
 		{
 			SynthGuitarAudioProcessor processor;
 			RenderedUserInterface editor(processor);
 			const auto layout = loadLayout();
 			for (const auto& mapping : { std::pair<const char*, const char*>{ "Camera_Sensitivity", "singleSensitivity" },
-				std::pair<const char*, const char*>{ "Camera_HighFrequency", "singleHighFrequency" } })
+				std::pair<const char*, const char*>{ "Camera_HighFrequency", "singleHighFrequency" },
+				std::pair<const char*, const char*>{ "Camera_VelocitySensitivity", "velocitySensitivity" } })
 			{
 				FilmstripKnob* knob = nullptr;
 				for (auto* canvas : editor.getChildren())
@@ -114,7 +115,8 @@ public:
 				expect(knob->getBounds() == juce::Rectangle<int>(static_cast<int>(entry["x"]), static_cast<int>(entry["y"]),
 					static_cast<int>(entry["width"]), static_cast<int>(entry["height"])));
 				expect(knob->getSliderStyle() == juce::Slider::RotaryVerticalDrag);
-				const auto value = juce::String(mapping.second) == "singleSensitivity" ? 0.75 : 5000.0;
+				const auto value = juce::String(mapping.second) == "singleSensitivity" ? 0.75
+					: juce::String(mapping.second) == "velocitySensitivity" ? 80.0 : 5000.0;
 				knob->setValue(value, juce::sendNotificationSync);
 				expectWithinAbsoluteError(processor.getParameters().getRawParameterValue(mapping.second)->load(),
 					static_cast<float>(value), 0.001f);

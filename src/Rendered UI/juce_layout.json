@@ -78,5 +78,13 @@
         "width": 561,
         "height": 249,
         "frames": 4
+    },
+    "Camera_VelocitySensitivity": {
+        "setBounds": "698, 143, 79, 79",
+        "x": 698,
+        "y": 143,
+        "width": 79,
+        "height": 79,
+        "frames": 64
     }
 }
