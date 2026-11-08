@@ -5,6 +5,8 @@
 
 namespace
 {
+using StrumMode = SynthGuitarAudioProcessor::StrumMode;
+
 juce::var loadLayout()
 {
 	return juce::JSON::parse(juce::String::fromUTF8(RenderedUIData::juce_layout_json,
@@ -167,13 +169,16 @@ public:
 					1.0f, 0.0f, 0.0f, 0.0f, 0.0f, &control, &control, now,
 					juce::Point<float>(1.0f, 1.0f), now, 1, false));
 			};
-			for (int state = 0; state < 3; ++state)
+			for (const auto& transition : { std::pair{ StrumMode::Low, StrumMode::High },
+				std::pair{ StrumMode::High, StrumMode::Both }, std::pair{ StrumMode::Both, StrumMode::Low } })
 			{
-				test::setParameter(processor.getParameters(), "strum", static_cast<float>(state));
-				expectEquals(plectrums->getFrame(), state);
+				test::setParameter(processor.getParameters(), SynthGuitarAudioProcessor::strumParameterId,
+					static_cast<float>(transition.first));
+				expectEquals(plectrums->getFrame(), static_cast<int>(transition.first));
 				clickControl(*plectrums);
-				expectEquals(processor.getParameters().getRawParameterValue("strum")->load(), static_cast<float>((state + 1) % 3));
-				expectEquals(plectrums->getFrame(), (state + 1) % 3);
+				expectEquals(processor.getParameters().getRawParameterValue(SynthGuitarAudioProcessor::strumParameterId)->load(),
+					static_cast<float>(transition.second));
+				expectEquals(plectrums->getFrame(), static_cast<int>(transition.second));
 			}
 			for (int state = 0; state < 3; ++state)
 			{
@@ -192,15 +197,17 @@ public:
 					juce::Timer::callPendingTimersSynchronously();
 				}
 			};
-			for (int state = 0; state < 3; ++state)
+			for (const auto mode : { StrumMode::Low, StrumMode::High, StrumMode::Both })
 			{
-				test::setParameter(processor.getParameters(), "strum", static_cast<float>(state));
+				test::setParameter(processor.getParameters(), SynthGuitarAudioProcessor::strumParameterId,
+					static_cast<float>(mode));
 				juce::Thread::sleep(40);
 				juce::Timer::callPendingTimersSynchronously();
 				expectEquals(strings->getFrame(), 0, "Strings remain off in every strum mode without output notes");
 				expectEquals(topLights->getFrame(), strings->getFrame(), "Idle TopLights follows Strings");
 			}
-			test::setParameter(processor.getParameters(), "strum", 0.0f);
+			test::setParameter(processor.getParameters(), SynthGuitarAudioProcessor::strumParameterId,
+				static_cast<float>(StrumMode::Low));
 			juce::AudioBuffer<float> audio(2, 512);
 			audio.clear();
 			juce::MidiBuffer midi;
@@ -244,12 +251,14 @@ public:
 			expect(processor.isOutputNoteActive(), "Second burst triggers the held MIDI note");
 			waitForFrame(*midiOut, 1);
 			expectEquals(midiOut->getFrame(), 1);
-			for (const int state : { 0, 1, 2, 1, 0 })
+			for (const auto mode : { StrumMode::Low, StrumMode::High, StrumMode::Both, StrumMode::High, StrumMode::Low })
 			{
-				test::setParameter(processor.getParameters(), "strum", static_cast<float>(state));
+				test::setParameter(processor.getParameters(), SynthGuitarAudioProcessor::strumParameterId,
+					static_cast<float>(mode));
+				const auto frame = static_cast<int>(mode) + 1;
 				expect(processor.isOutputNoteActive(), "Output activity is held while testing UI frame selection");
-				waitForFrame(*strings, state + 1);
-				expectEquals(strings->getFrame(), state + 1, "Active Strings frame follows the strum mode");
+				waitForFrame(*strings, frame);
+				expectEquals(strings->getFrame(), frame, "Active Strings frame follows the strum mode");
 				expectEquals(topLights->getFrame(), strings->getFrame(), "Active TopLights follows Strings");
 			}
 			processor.releaseResources();

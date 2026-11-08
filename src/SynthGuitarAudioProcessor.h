@@ -2,6 +2,7 @@
 
 #include <array>
 #include <bitset>
+#include <optional>
 #include <juce_audio_utils/juce_audio_utils.h>
 
 #include "MidiSplitter.h"
@@ -11,6 +12,15 @@
 class SynthGuitarAudioProcessor final : public juce::AudioProcessor
 {
 public:
+    enum class StrumMode
+    {
+        Low = 0,
+        High = 1,
+        Both = 2
+    };
+
+    static constexpr std::array<const char*, 3> strumModeNames{ "Low", "High", "Both" };
+
     SynthGuitarAudioProcessor();
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
@@ -72,7 +82,7 @@ private:
     std::atomic<float>* velocitySensitivityParam = nullptr;
     std::shared_ptr<instrument::TriggeredPlayer> singlePlayer;
     instrument::TransientDetector singleDetector;
-    int lastStrum = -1;
+    std::optional<StrumMode> lastStrum;
     juce::MidiBuffer singleInputBuffer;
     juce::MidiBuffer midiScratchBuffer;
     instrument::MidiSplitter midiSplitter;

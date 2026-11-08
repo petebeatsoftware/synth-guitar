@@ -29,7 +29,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout SynthGuitarAudioProcessor::c
 
     layout.add(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{ strumParameterId, 1 }, "Strum",
-        juce::StringArray{ "Low", "High", "Both" }, 2));
+        juce::StringArray(strumModeNames.data(), static_cast<int>(strumModeNames.size())),
+        static_cast<int>(StrumMode::Both)));
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{ singleSensitivityParameterId, 1 }, "Sensitivity",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.5f));
@@ -54,7 +55,7 @@ void SynthGuitarAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     clearNoteActivity();
     singleDetector.prepare(sampleRate, samplesPerBlock);
     singlePlayer->prepare(sampleRate, samplesPerBlock);
-    lastStrum = -1;
+    lastStrum.reset();
     singleInputBuffer.ensureSize(1024 * 1024);
     midiScratchBuffer.ensureSize(1024 * 1024);
     for (auto& buffer : splitMidiBuffers)
@@ -67,7 +68,7 @@ void SynthGuitarAudioProcessor::releaseResources()
     clearNoteActivity();
     singleDetector.reset();
     singlePlayer->reset();
-    lastStrum = -1;
+    lastStrum.reset();
     singleInputBuffer.clear();
     midiScratchBuffer.clear();
     for (auto& buffer : splitMidiBuffers)
@@ -94,19 +95,21 @@ void SynthGuitarAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,
     midiScratchBuffer.clear();
     midiScratchBuffer.swapWith(midiMessages);
     inputNoteActive.store(updateNoteState(inputNotes, midiScratchBuffer));
-    const int strum = juce::jlimit(0, 2, juce::roundToInt(strumParam->load()));
+    const auto strum = static_cast<StrumMode>(juce::jlimit(
+        static_cast<int>(StrumMode::Low), static_cast<int>(StrumMode::Both),
+        juce::roundToInt(strumParam->load())));
     singleInputBuffer.clear();
     if (strum != lastStrum)
     {
         singlePlayer->releaseNotes(midiMessages);
-        if (strum == 2)
+        if (strum == StrumMode::Both)
         {
-            midiSplitter.addHeldNotes(0, singleInputBuffer, 0);
-            midiSplitter.addHeldNotes(1, singleInputBuffer, 0);
+            midiSplitter.addHeldNotes(static_cast<int>(StrumMode::Low), singleInputBuffer, 0);
+            midiSplitter.addHeldNotes(static_cast<int>(StrumMode::High), singleInputBuffer, 0);
         }
         else
         {
-            midiSplitter.addHeldNotes(strum, singleInputBuffer, 0);
+            midiSplitter.addHeldNotes(static_cast<int>(strum), singleInputBuffer, 0);
         }
     }
     lastStrum = strum;
@@ -117,7 +120,7 @@ void SynthGuitarAudioProcessor::processBlock(juce::AudioBuffer<float>& audio,
     const auto low = juce::jlimit(20.0f, 19000.0f, singleLowFrequencyParam->load());
     const auto high = juce::jmin(20000.0f, juce::jmax(singleHighFrequencyParam->load(), low * 1.01f));
     singleDetector.setFrequencyRange(low, high);
-    singleInputBuffer.addEvents(strum == 2 ? midiScratchBuffer : splitMidiBuffers[static_cast<size_t>(strum)],
+    singleInputBuffer.addEvents(strum == StrumMode::Both ? midiScratchBuffer : splitMidiBuffers[static_cast<size_t>(strum)],
                                0, -1, 0);
     singlePlayer->processBlock(singleInputBuffer, midiMessages, audio.getNumSamples());
     singleDetector.setSensitivity(singleSensitivityParam->load());

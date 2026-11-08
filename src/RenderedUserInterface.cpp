@@ -192,7 +192,9 @@ void RenderedUserInterface::timerCallback()
 	{
 		const auto strum = audioProcessor.getParameters().getRawParameterValue(
 			SynthGuitarAudioProcessor::strumParameterId)->load();
-		const int frame = outputActive ? juce::jlimit(0, 2, juce::roundToInt(strum)) + 1 : 0;
+		using StrumMode = SynthGuitarAudioProcessor::StrumMode;
+		const int frame = outputActive ? juce::jlimit(static_cast<int>(StrumMode::Low),
+			static_cast<int>(StrumMode::Both), juce::roundToInt(strum)) + 1 : 0;
 		if (strings != nullptr) strings->setFrame(frame);
 		if (topLights != nullptr) topLights->setFrame(frame);
 	}

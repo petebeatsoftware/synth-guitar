@@ -6,6 +6,8 @@
 
 namespace
 {
+using StrumMode = SynthGuitarAudioProcessor::StrumMode;
+
 struct ParameterSpec
 {
 	const char* id;
@@ -17,7 +19,8 @@ struct ParameterSpec
 // (name, default, min, max) for all parameters in the plugin. Used to verify that the plugin's parameters are correctly defined.
 constexpr ParameterSpec parameterSpecs[] {
 	{ "detectionMode", 2.0f, 0.0f, 2.0f },
-	{ "strum", 2.0f, 0.0f, 2.0f },
+	{ SynthGuitarAudioProcessor::strumParameterId, static_cast<float>(StrumMode::Both),
+		static_cast<float>(StrumMode::Low), static_cast<float>(StrumMode::Both) },
 	{ "singleSensitivity", 0.5f, 0.0f, 1.0f },
 	{ "singleLowFrequency", 20.0f, 20.0f, 20000.0f },
 	{ "singleHighFrequency", 20000.0f, 20.0f, 20000.0f },
@@ -54,6 +57,25 @@ public:
 
 	void runTest() override
 	{
+		check("Strum choice labels and indices remain compatible", [&]
+		{
+			expectEquals(static_cast<int>(StrumMode::Low), 0);
+			expectEquals(static_cast<int>(StrumMode::High), 1);
+			expectEquals(static_cast<int>(StrumMode::Both), 2);
+			SynthGuitarAudioProcessor processor;
+			auto* parameter = dynamic_cast<juce::AudioParameterChoice*>(
+				processor.getParameters().getParameter(SynthGuitarAudioProcessor::strumParameterId));
+			expect(parameter != nullptr);
+			if (parameter == nullptr)
+				return;
+			expect(parameter->choices == juce::StringArray{ "Low", "High", "Both" });
+			for (const auto mode : { StrumMode::Low, StrumMode::High, StrumMode::Both })
+			{
+				test::setParameter(processor.getParameters(), SynthGuitarAudioProcessor::strumParameterId,
+					static_cast<float>(mode));
+				expectEquals(parameter->getIndex(), static_cast<int>(mode));
+			}
+		});
 		check("MIDI activity tracks channels, note-offs and lifecycle resets", [&]
 		{
 			SynthGuitarAudioProcessor processor;
@@ -240,37 +262,39 @@ public:
 			processor.processBlock(empty, midi);
 			expect(midi.isEmpty());
 		});
-		for (const auto& modes : { std::pair<int, int>{ 0, 1 }, std::pair<int, int>{ 0, 2 },
-			std::pair<int, int>{ 1, 0 }, std::pair<int, int>{ 1, 2 },
-			std::pair<int, int>{ 2, 0 }, std::pair<int, int>{ 2, 1 } })
-			check("Strum routing and held-note replay from " + juce::String(modes.first)
-				+ " to " + juce::String(modes.second), [&]
+		for (const auto& modes : { std::pair{ StrumMode::Low, StrumMode::High },
+			std::pair{ StrumMode::Low, StrumMode::Both }, std::pair{ StrumMode::High, StrumMode::Low },
+			std::pair{ StrumMode::High, StrumMode::Both }, std::pair{ StrumMode::Both, StrumMode::Low },
+			std::pair{ StrumMode::Both, StrumMode::High } })
+			check("Strum routing and held-note replay from "
+				+ juce::String(SynthGuitarAudioProcessor::strumModeNames[static_cast<size_t>(modes.first)])
+				+ " to " + SynthGuitarAudioProcessor::strumModeNames[static_cast<size_t>(modes.second)], [&]
 			{
 				const auto strum = modes.first;
 				const auto nextStrum = modes.second;
 				SynthGuitarAudioProcessor processor;
-				test::setParameter(processor.getParameters(), "strum", static_cast<float>(strum));
+				test::setParameter(processor.getParameters(), SynthGuitarAudioProcessor::strumParameterId, static_cast<float>(strum));
 				test::setParameter(processor.getParameters(), "detectionMode", 1.0f);
 				processor.prepareToPlay(48000.0, 512);
 				holdChord(processor);
 				const auto events = test::eventsOf(excite(processor));
-				expectEquals(static_cast<int>(events.size()), strum == 2 ? 2 : 1);
+				expectEquals(static_cast<int>(events.size()), strum == StrumMode::Both ? 2 : 1);
 				for (size_t i = 0; i < events.size(); ++i)
 				{
 					expect(events[i].second.isNoteOn());
-					expectEquals(events[i].second.getNoteNumber(), strum == 1 || i == 1 ? 60 : 48);
+					expectEquals(events[i].second.getNoteNumber(), strum == StrumMode::High || i == 1 ? 60 : 48);
 					expectEquals(events[i].second.getChannel(), 1);
 				}
 				expect(processor.isSingleNoteActive());
-				test::setParameter(processor.getParameters(), "strum", static_cast<float>(nextStrum));
+				test::setParameter(processor.getParameters(), SynthGuitarAudioProcessor::strumParameterId, static_cast<float>(nextStrum));
 				juce::AudioBuffer<float> silence(2, 512);
 				silence.clear();
 				juce::MidiBuffer midi;
 				processor.processBlock(silence, midi);
 				const auto released = test::eventsOf(midi);
-				expectEquals(static_cast<int>(released.size()), strum == 2 ? 2 : 1);
+				expectEquals(static_cast<int>(released.size()), strum == StrumMode::Both ? 2 : 1);
 				for (size_t i = 0; i < released.size(); ++i)
-					expectEvent(released, i, 0, strum == 1 || i == 1 ? 60 : 48, false);
+					expectEvent(released, i, 0, strum == StrumMode::High || i == 1 ? 60 : 48, false);
 				expect(!processor.isSingleNoteActive());
 				for (int block = 0; block < 5; ++block)
 				{
@@ -278,18 +302,19 @@ public:
 					processor.processBlock(silence, midi);
 				}
 				const auto retriggered = test::eventsOf(excite(processor));
-				expectEquals(static_cast<int>(retriggered.size()), nextStrum == 2 ? 2 : 1);
+				expectEquals(static_cast<int>(retriggered.size()), nextStrum == StrumMode::Both ? 2 : 1);
 				for (size_t i = 0; i < retriggered.size(); ++i)
 				{
 					expect(retriggered[i].second.isNoteOn());
-					expectEquals(retriggered[i].second.getNoteNumber(), nextStrum == 1 || i == 1 ? 60 : 48);
+					expectEquals(retriggered[i].second.getNoteNumber(), nextStrum == StrumMode::High || i == 1 ? 60 : 48);
 					expectEquals(retriggered[i].second.getChannel(), 1);
 				}
 			});
 		check("Both strum keeps displaced low notes playing and releases only requested notes", [&]
 		{
 			SynthGuitarAudioProcessor processor;
-			test::setParameter(processor.getParameters(), "strum", 2.0f);
+			test::setParameter(processor.getParameters(), SynthGuitarAudioProcessor::strumParameterId,
+				static_cast<float>(StrumMode::Both));
 			test::setParameter(processor.getParameters(), "detectionMode", 1.0f);
 			processor.prepareToPlay(48000.0, 512);
 			juce::AudioBuffer<float> silence(2, 512);
