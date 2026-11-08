@@ -13,6 +13,7 @@ BASE_WIDTH = 800         # Your plugin window width (1x scale)
 BASE_HEIGHT = 1080        # Your plugin window height (1x scale)
 BACKGROUND_CAMERA_NAME = "Camera"  # Camera used to render Main.png
 RETINA_SCALE = 1         # Render at 2x resolution for High-DPI displays
+OUTPUT_DIR = r"I:\dev\synth-guitar\src\Rendered UI"
 # ==========================================
 
 scene = bpy.context.scene
@@ -33,7 +34,6 @@ scene.render.pixel_aspect_y = 1.0
 
 tmp_dir = r"I:\BlendTemp"
 os.makedirs(tmp_dir, exist_ok=True)
-blend_dir = bpy.path.abspath("//") or tmp_dir
 layout_data = {}
 
 camera_collection = bpy.data.collections.get("UI_Cameras")
@@ -147,14 +147,14 @@ for obj in camera_collection.objects:
     sheet_img = bpy.data.images.new(name=cam_name, width=sheet_width, height=sheet_height, alpha=True)
     sheet_img.pixels.foreach_set(sheet_pixels)
     
-    final_path = os.path.join(blend_dir, f"{cam_name}_filmstrip.png")
+    final_path = os.path.join(OUTPUT_DIR, f"{cam_name}_filmstrip.png")
     sheet_img.filepath_raw = final_path
     sheet_img.file_format = 'PNG'
     sheet_img.save()
     print(f"Saved {cam_name}_filmstrip.png")
 
 # 5. EXPORT LAYOUT JSON
-json_path = os.path.join(blend_dir, "juce_layout.json")
+json_path = os.path.join(OUTPUT_DIR, "juce_layout.json")
 with open(json_path, 'w') as f:
     json.dump(layout_data, f, indent=4)
 
