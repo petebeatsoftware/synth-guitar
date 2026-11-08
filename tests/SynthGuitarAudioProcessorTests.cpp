@@ -21,7 +21,7 @@ constexpr ParameterSpec parameterSpecs[] {
 	{ "singleSensitivity", 0.5f, 0.0f, 1.0f },
 	{ "singleLowFrequency", 20.0f, 20.0f, 20000.0f },
 	{ "singleHighFrequency", 20000.0f, 20.0f, 20000.0f },
-	{ "velocitySensitivity", 0.0f, 0.0f, 100.0f }
+	{ "velocitySensitivity", 50.0f, 0.0f, 100.0f }
 };
 
 juce::MidiBuffer excite(SynthGuitarAudioProcessor& processor)

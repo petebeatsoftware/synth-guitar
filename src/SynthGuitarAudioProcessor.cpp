@@ -44,7 +44,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SynthGuitarAudioProcessor::c
         juce::AudioParameterFloatAttributes().withLabel("Hz")));
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{ velocitySensitivityParameterId, 1 }, "Velocity Sensitivity",
-        juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 0.0f,
+        juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 50.0f,
         juce::AudioParameterFloatAttributes().withLabel("%")));
     return layout;
 }
