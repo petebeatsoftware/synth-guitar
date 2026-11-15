@@ -16,6 +16,11 @@ Download the installer for your OS. On Windows, run the installer. On Linux, use
 
 ![Synth Guitar interface](src/Rendered%20UI/Main.png)
 
+# Support
+
+If you love it, you could buy me a coffee 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/A1W52AQ1ZJ)
+
 # For developers
 
 ## Configure, build, and test
