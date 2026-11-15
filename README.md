@@ -1,14 +1,22 @@
 # Instrument
 
-A JUCE-based audio/MIDI effect plugin, built with CMake, that generates
-transient-triggered MIDI from incoming notes and audio.
+A plugin for converting a rhythm guitar track into a synth track. It doesn't generate any audio data itself,
+use it with your favourite synths!
+
+Check out my YouTube channel for a video demonstration: [https://www.youtube.com/@_pete_beat](https://www.youtube.com/@_pete_beat)
 
 ## Formats
 
-- VST3 on Windows, macOS, and Linux
-- Audio Unit (AU) on macOS
-- AAX for Pro Tools is optional and requires the Avid AAX SDK and applicable
-  developer access
+- VST3 on Windows and Linux
+- Mac support is planned, but not yet implemented. It builds but is not signed with an Apple Developer certificate
+
+## Installation
+
+Download the installer for your OS. On Windows, run the installer. On Linux, use your package manager to install.
+
+![Synth Guitar interface](src/Rendered%20UI/Main.png)
+
+# For developers
 
 ## Configure, build, and test
 
