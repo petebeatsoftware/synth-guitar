@@ -3,7 +3,7 @@
 A plugin for converting a rhythm guitar track into a synth track. It doesn't generate any audio data itself,
 use it with your favourite synths!
 
-Check out my YouTube channel for a video demonstration: [https://www.youtube.com/@_pete_beat](https://www.youtube.com/@_pete_beat)
+Check out my YouTube channel for a video demonstration: [https://youtube.com/shorts/P722-l9OC1w](https://youtube.com/shorts/P722-l9OC1w) 
 
 ## Formats
 
